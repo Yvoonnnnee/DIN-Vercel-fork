@@ -80,6 +80,21 @@ export async function ensureAppUser() {
     return appUser;
   }
 
+  const existingByEmail = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  if (existingByEmail[0]) {
+    const appUser = existingByEmail[0];
+    const updated = await db
+      .update(users)
+      .set({
+        clerkUserId: userId,
+        fullName,
+      })
+      .where(eq(users.id, appUser.id))
+      .returning();
+
+    return updated[0] ?? appUser;
+  }
+
   const inserted = await db
     .insert(users)
     .values({
