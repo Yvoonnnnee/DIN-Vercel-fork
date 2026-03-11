@@ -68,6 +68,15 @@ export const evidenceCreateSchema = z.object({
     "other",
   ]),
   notes: z.string().optional().nullable(),
+  attachment: z
+    .object({
+      url: z.string().url(),
+      pathname: z.string(),
+      fileName: z.string(),
+      contentType: z.string().optional().nullable(),
+      size: z.number().optional().nullable(),
+    })
+    .optional(),
 });
 
 export const witnessCreateSchema = z.object({
@@ -77,6 +86,15 @@ export const witnessCreateSchema = z.object({
   relationship: z.string().optional(),
   statement: z.string().optional(),
   notes: z.string().optional(),
+  attachment: z
+    .object({
+      url: z.string().url(),
+      pathname: z.string(),
+      fileName: z.string(),
+      contentType: z.string().optional().nullable(),
+      size: z.number().optional().nullable(),
+    })
+    .optional(),
 });
 
 export const consultantCreateSchema = z.object({
@@ -88,13 +106,42 @@ export const consultantCreateSchema = z.object({
   role: z.string().optional(),
   report: z.string().optional(),
   notes: z.string().optional(),
+  attachment: z
+    .object({
+      url: z.string().url(),
+      pathname: z.string(),
+      fileName: z.string(),
+      contentType: z.string().optional().nullable(),
+      size: z.number().optional().nullable(),
+    })
+    .optional(),
 });
 
 export const expertiseCreateSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
+  attachments: z
+    .array(
+      z.object({
+        url: z.string().url(),
+        pathname: z.string(),
+        fileName: z.string(),
+        contentType: z.string().optional().nullable(),
+        size: z.number().optional().nullable(),
+      }),
+    )
+    .default([]),
 });
 
 export const messageCreateSchema = z.object({
   content: z.string().min(1),
+  attachment: z
+    .object({
+      url: z.string().url(),
+      pathname: z.string(),
+      fileName: z.string(),
+      contentType: z.string().optional().nullable(),
+      size: z.number().optional().nullable(),
+    })
+    .optional(),
 });

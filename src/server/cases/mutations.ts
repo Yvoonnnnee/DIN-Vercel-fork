@@ -191,6 +191,11 @@ export async function createEvidence(user: AppUser, caseId: string, payload: unk
       status: "pending",
       submittedBy: authorized.role === "moderator" ? "arbitrator" : authorized.role,
       notes: parsed.notes || null,
+      fileUrl: parsed.attachment?.url ?? null,
+      filePathname: parsed.attachment?.pathname ?? null,
+      fileName: parsed.attachment?.fileName ?? null,
+      contentType: parsed.attachment?.contentType ?? null,
+      fileSize: parsed.attachment?.size ?? null,
     })
     .returning();
 
@@ -232,6 +237,8 @@ export async function createWitness(user: AppUser, caseId: string, payload: unkn
       phone: parsed.phone || null,
       relationship: parsed.relationship || null,
       statement: parsed.statement || null,
+      statementFileUrl: parsed.attachment?.url ?? null,
+      statementFilePathname: parsed.attachment?.pathname ?? null,
       calledBy: authorized.role,
       notes: parsed.notes || null,
       status: "pending",
@@ -272,6 +279,8 @@ export async function createConsultant(user: AppUser, caseId: string, payload: u
       expertise: parsed.expertise || null,
       role: parsed.role || null,
       report: parsed.report || null,
+      reportFileUrl: parsed.attachment?.url ?? null,
+      reportFilePathname: parsed.attachment?.pathname ?? null,
       calledBy: authorized.role,
       notes: parsed.notes || null,
       status: "pending",
@@ -308,6 +317,7 @@ export async function createExpertise(user: AppUser, caseId: string, payload: un
       requestedBy: authorized.role,
       title: parsed.title,
       description: parsed.description,
+      fileReferences: parsed.attachments,
       status: "draft",
     })
     .returning();
@@ -346,6 +356,9 @@ export async function createMessage(user: AppUser, caseId: string, payload: unkn
       senderRole,
       senderName: user?.fullName || user?.email || "Unknown sender",
       content: parsed.content,
+      attachmentUrl: parsed.attachment?.url ?? null,
+      attachmentPathname: parsed.attachment?.pathname ?? null,
+      attachmentName: parsed.attachment?.fileName ?? null,
     })
     .returning();
 
