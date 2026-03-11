@@ -1,0 +1,340 @@
+"use client";
+
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import type { Route } from "next";
+
+type Claim = {
+  claim: string;
+  details?: string;
+};
+
+type CaseEditorProps = {
+  mode: "create" | "edit";
+  initialCase?: {
+    id: string;
+    description: string | null;
+    category: string | null;
+    priority: "low" | "medium" | "high" | "urgent";
+    claimantName: string | null;
+    claimantEmail: string | null;
+    claimantPhone: string | null;
+    respondentName: string | null;
+    respondentEmail: string | null;
+    respondentPhone: string | null;
+    claimAmount: string | null;
+    currency: string;
+    claimantClaims: Record<string, unknown>[] | null;
+    respondentClaims: Record<string, unknown>[] | null;
+  };
+};
+
+const categories = [
+  "commercial",
+  "employment",
+  "construction",
+  "insurance",
+  "intellectual_property",
+  "real_estate",
+  "consumer",
+  "international",
+  "other",
+] as const;
+
+const priorities = ["low", "medium", "high", "urgent"] as const;
+
+function asClaims(input: Record<string, unknown>[] | null | undefined): Claim[] {
+  if (!input?.length) {
+    return [{ claim: "", details: "" }];
+  }
+
+  return input.map((item) => ({
+    claim: typeof item.claim === "string" ? item.claim : "",
+    details: typeof item.details === "string" ? item.details : "",
+  }));
+}
+
+export function CaseEditor({ mode, initialCase }: CaseEditorProps) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    description: initialCase?.description ?? "",
+    category: initialCase?.category ?? "commercial",
+    priority: initialCase?.priority ?? "medium",
+    claimantName: initialCase?.claimantName ?? "",
+    claimantEmail: initialCase?.claimantEmail ?? "",
+    claimantPhone: initialCase?.claimantPhone ?? "",
+    respondentName: initialCase?.respondentName ?? "",
+    respondentEmail: initialCase?.respondentEmail ?? "",
+    respondentPhone: initialCase?.respondentPhone ?? "",
+    claimAmount: initialCase?.claimAmount ?? "",
+    currency: initialCase?.currency ?? "USD",
+    claimantClaims: asClaims(initialCase?.claimantClaims),
+    respondentClaims: asClaims(initialCase?.respondentClaims),
+  });
+
+  const titlePreview = useMemo(
+    () => `${form.claimantName || "Claimant"} vs ${form.respondentName || "Respondent"}`,
+    [form.claimantName, form.respondentName],
+  );
+
+  function updateClaim(kind: "claimantClaims" | "respondentClaims", index: number, key: keyof Claim, value: string) {
+    setForm((current) => ({
+      ...current,
+      [kind]: current[kind].map((claim, claimIndex) =>
+        claimIndex === index ? { ...claim, [key]: value } : claim,
+      ),
+    }));
+  }
+
+  function addClaim(kind: "claimantClaims" | "respondentClaims") {
+    setForm((current) => ({
+      ...current,
+      [kind]: [...current[kind], { claim: "", details: "" }],
+    }));
+  }
+
+  function removeClaim(kind: "claimantClaims" | "respondentClaims", index: number) {
+    setForm((current) => ({
+      ...current,
+      [kind]:
+        current[kind].length === 1
+          ? current[kind]
+          : current[kind].filter((_, claimIndex) => claimIndex !== index),
+    }));
+  }
+
+  async function submit(saveMode: "draft" | "file") {
+    setError(null);
+
+    const payload = {
+      ...form,
+      claimAmount: form.claimAmount ? Number(form.claimAmount) : null,
+      claimantClaims: form.claimantClaims.filter((claim) => claim.claim.trim()),
+      respondentClaims: form.respondentClaims.filter((claim) => claim.claim.trim()),
+      saveMode,
+    };
+
+    startTransition(async () => {
+      const response = await fetch(
+        mode === "create" ? "/api/cases" : `/api/cases/${initialCase?.id}`,
+        {
+          method: mode === "create" ? "POST" : "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      const result = await response.json();
+      if (!response.ok) {
+        setError(result.error?.message || "Failed to save case.");
+        return;
+      }
+
+      const redirectTo = `/cases/${result.data.id}` as Route;
+      router.push(redirectTo);
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="space-y-2">
+        <div className="text-sm uppercase tracking-[0.2em] text-slate-400">
+          {mode === "create" ? "Phase 2" : "Edit case"}
+        </div>
+        <h1 className="text-3xl font-semibold tracking-tight text-ink">
+          {mode === "create" ? "Create a new case" : "Update case details"}
+        </h1>
+        <p className="text-sm text-slate-600">Preview title: {titlePreview}</p>
+      </div>
+
+      {error ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {error}
+        </div>
+      ) : null}
+
+      <section className="grid gap-4 rounded-[28px] border border-slate-200 bg-white p-6 md:grid-cols-2">
+        <label className="space-y-2 md:col-span-2">
+          <span className="text-sm font-medium text-slate-700">Dispute summary</span>
+          <textarea
+            value={form.description}
+            onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+            rows={4}
+            className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-signal"
+          />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-700">Category</span>
+          <select
+            value={form.category}
+            onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
+            className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+          >
+            {categories.map((category) => (
+              <option key={category} value={category}>
+                {category.replaceAll("_", " ")}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-700">Priority</span>
+          <select
+            value={form.priority}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                priority: event.target.value as (typeof priorities)[number],
+              }))
+            }
+            className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+          >
+            {priorities.map((priority) => (
+              <option key={priority} value={priority}>
+                {priority}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-700">Claim amount</span>
+          <input
+            value={form.claimAmount}
+            onChange={(event) => setForm((current) => ({ ...current, claimAmount: event.target.value }))}
+            className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+          />
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-slate-700">Currency</span>
+          <input
+            value={form.currency}
+            onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value.toUpperCase() }))}
+            className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+          />
+        </label>
+      </section>
+
+      <section className="grid gap-6 rounded-[28px] border border-slate-200 bg-white p-6 md:grid-cols-2">
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-ink">Claimant</h2>
+          {[
+            ["Name", "claimantName"],
+            ["Email", "claimantEmail"],
+            ["Phone", "claimantPhone"],
+          ].map(([label, key]) => (
+            <label key={key} className="space-y-2">
+              <span className="text-sm font-medium text-slate-700">{label}</span>
+              <input
+                value={form[key as "claimantName" | "claimantEmail" | "claimantPhone"]}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    [key]: event.target.value,
+                  }))
+                }
+                className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+              />
+            </label>
+          ))}
+        </div>
+
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-ink">Respondent</h2>
+          {[
+            ["Name", "respondentName"],
+            ["Email", "respondentEmail"],
+            ["Phone", "respondentPhone"],
+          ].map(([label, key]) => (
+            <label key={key} className="space-y-2">
+              <span className="text-sm font-medium text-slate-700">{label}</span>
+              <input
+                value={form[key as "respondentName" | "respondentEmail" | "respondentPhone"]}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    [key]: event.target.value,
+                  }))
+                }
+                className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+              />
+            </label>
+          ))}
+        </div>
+      </section>
+
+      {(["claimantClaims", "respondentClaims"] as const).map((kind) => (
+        <section key={kind} className="space-y-4 rounded-[28px] border border-slate-200 bg-white p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-ink">
+              {kind === "claimantClaims" ? "Claimant claims" : "Respondent claims"}
+            </h2>
+            <button
+              type="button"
+              onClick={() => addClaim(kind)}
+              className="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400"
+            >
+              Add claim
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {form[kind].map((claim, index) => (
+              <div key={`${kind}-${index}`} className="grid gap-3 rounded-2xl bg-slate-50 p-4">
+                <input
+                  value={claim.claim}
+                  onChange={(event) => updateClaim(kind, index, "claim", event.target.value)}
+                  placeholder="Claim title"
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+                />
+                <textarea
+                  value={claim.details || ""}
+                  onChange={(event) => updateClaim(kind, index, "details", event.target.value)}
+                  placeholder="Supporting detail"
+                  rows={3}
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+                />
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => removeClaim(kind, index)}
+                    className="text-sm font-medium text-rose-600 hover:text-rose-700"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => submit("draft")}
+          className="rounded-full border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:opacity-60"
+        >
+          Save draft
+        </button>
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => submit("file")}
+          className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+        >
+          {mode === "create" ? "Create and file case" : "Save and file"}
+        </button>
+      </div>
+    </div>
+  );
+}

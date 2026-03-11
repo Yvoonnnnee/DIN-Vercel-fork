@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ensureAppUser } from "@/server/auth/provision";
 import { getCaseDetail } from "@/server/cases/queries";
+import { CaseWorkspace } from "@/components/case-workspace";
 import { formatCurrency, formatDateTime } from "@/server/format";
 
 type CaseDetailPageProps = {
@@ -124,6 +125,17 @@ export default async function CaseDetailPage({ params }: CaseDetailPageProps) {
           </div>
         </section>
       </div>
+
+      <CaseWorkspace
+        caseId={detail.case.id}
+        roleLabel={detail.roleLabel}
+        canContribute={detail.role !== "moderator" && detail.role !== "admin"}
+        evidence={detail.evidence}
+        witnesses={detail.witnesses}
+        consultants={detail.consultants}
+        expertiseRequests={detail.expertiseRequests}
+        messages={detail.messages}
+      />
     </div>
   );
 }

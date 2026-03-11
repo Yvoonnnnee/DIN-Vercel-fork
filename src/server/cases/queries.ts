@@ -1,7 +1,7 @@
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { caseActivities, cases, consultants, evidence, expertiseRequests, witnesses } from "@/db/schema";
+import { caseActivities, caseMessages, cases, consultants, evidence, expertiseRequests, witnesses } from "@/db/schema";
 import type { ProvisionedAppUser } from "@/server/auth/provision";
 import { isDatabaseConfigured } from "@/server/runtime";
 
@@ -209,29 +209,18 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     return null;
   }
 
-  const [activityRows, evidenceCount, witnessCount, consultantCount, expertiseCount] = await Promise.all([
+  const [activityRows, evidenceRows, witnessRows, consultantRows, expertiseRows, messageRows] = await Promise.all([
     db
       .select()
       .from(caseActivities)
       .where(eq(caseActivities.caseId, caseId))
       .orderBy(desc(caseActivities.createdAt))
       .limit(8),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(evidence)
-      .where(eq(evidence.caseId, caseId)),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(witnesses)
-      .where(eq(witnesses.caseId, caseId)),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(consultants)
-      .where(eq(consultants.caseId, caseId)),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(expertiseRequests)
-      .where(eq(expertiseRequests.caseId, caseId)),
+    db.select().from(evidence).where(eq(evidence.caseId, caseId)).orderBy(desc(evidence.createdAt)),
+    db.select().from(witnesses).where(eq(witnesses.caseId, caseId)).orderBy(desc(witnesses.createdAt)),
+    db.select().from(consultants).where(eq(consultants.caseId, caseId)).orderBy(desc(consultants.createdAt)),
+    db.select().from(expertiseRequests).where(eq(expertiseRequests.caseId, caseId)).orderBy(desc(expertiseRequests.createdAt)),
+    db.select().from(caseMessages).where(eq(caseMessages.caseId, caseId)).orderBy(desc(caseMessages.createdAt)).limit(20),
   ]);
 
   return {
@@ -239,11 +228,16 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     role,
     roleLabel: toRoleLabel(role),
     activities: activityRows,
+    evidence: evidenceRows,
+    witnesses: witnessRows,
+    consultants: consultantRows,
+    expertiseRequests: expertiseRows,
+    messages: messageRows,
     summaryCards: [
-      { label: "Evidence", value: evidenceCount[0]?.count ?? 0 },
-      { label: "Witnesses", value: witnessCount[0]?.count ?? 0 },
-      { label: "Consultants", value: consultantCount[0]?.count ?? 0 },
-      { label: "Expertise", value: expertiseCount[0]?.count ?? 0 },
+      { label: "Evidence", value: evidenceRows.length },
+      { label: "Witnesses", value: witnessRows.length },
+      { label: "Consultants", value: consultantRows.length },
+      { label: "Expertise", value: expertiseRows.length },
     ],
   };
 }
