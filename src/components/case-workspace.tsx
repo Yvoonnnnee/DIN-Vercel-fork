@@ -41,6 +41,8 @@ type CaseWorkspaceProps = {
   consultants: RecordSummary[];
   expertiseRequests: RecordSummary[];
   messages: RecordSummary[];
+  initialSection?: (typeof sections)[number]["key"];
+  hideSectionNav?: boolean;
 };
 
 const sections = [
@@ -78,7 +80,9 @@ function expertiseLink(recordId: string, index: number) {
 
 export function CaseWorkspace(props: CaseWorkspaceProps) {
   const router = useRouter();
-  const [activeSection, setActiveSection] = useState<(typeof sections)[number]["key"]>("evidence");
+  const [activeSection, setActiveSection] = useState<(typeof sections)[number]["key"]>(
+    props.initialSection || "evidence",
+  );
   const [error, setError] = useState<string | null>(null);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -271,22 +275,24 @@ export function CaseWorkspace(props: CaseWorkspaceProps) {
         </Link>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {sections.map((section) => (
-          <button
-            key={section.key}
-            type="button"
-            onClick={() => setActiveSection(section.key)}
-            className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-              activeSection === section.key
-                ? "bg-ink text-white"
-                : "border border-slate-300 text-slate-700 hover:border-slate-400"
-            }`}
-          >
-            {section.label}
-          </button>
-        ))}
-      </div>
+      {!props.hideSectionNav ? (
+        <div className="flex flex-wrap gap-2">
+          {sections.map((section) => (
+            <button
+              key={section.key}
+              type="button"
+              onClick={() => setActiveSection(section.key)}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                activeSection === section.key
+                  ? "bg-ink text-white"
+                  : "border border-slate-300 text-slate-700 hover:border-slate-400"
+              }`}
+            >
+              {section.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">

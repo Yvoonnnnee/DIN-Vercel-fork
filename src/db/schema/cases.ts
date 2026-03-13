@@ -28,6 +28,7 @@ export const cases = pgTable(
     arbitratorAssignedName: text("arbitrator_assigned_name"),
     arbitratorAssignedUserId: text("arbitrator_assigned_user_id"),
     claimantLawyerKey: text("claimant_lawyer_key"),
+    respondentLawyerKey: text("respondent_lawyer_key"),
     aiSuggestion: text("ai_suggestion"),
     arbitrationProposalJson: jsonb("arbitration_proposal_json").$type<Record<string, unknown> | null>(),
     judgementJson: jsonb("judgement_json").$type<Record<string, unknown> | null>(),

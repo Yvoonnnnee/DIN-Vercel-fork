@@ -7,7 +7,8 @@ import { Coins, FolderOpen, LayoutDashboard, PencilRuler, Shield } from "lucide-
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/dashboard" as Route, label: "Dashboard", icon: LayoutDashboard },
+  { href: "/claimant" as Route, label: "Claimant", icon: LayoutDashboard },
+  { href: "/respondent" as Route, label: "Respondent", icon: LayoutDashboard },
   { href: "/cases" as Route, label: "Cases", icon: FolderOpen },
   { href: "/cases/new" as Route, label: "New case", icon: PencilRuler },
   { href: "/billing" as Route, label: "Buy tokens", icon: Coins },

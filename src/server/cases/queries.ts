@@ -1,7 +1,7 @@
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { caseActivities, caseMessages, cases, consultants, evidence, expertiseRequests, witnesses } from "@/db/schema";
+import { caseActivities, caseMessages, cases, consultants, evidence, expertiseRequests, lawyerConversations, witnesses } from "@/db/schema";
 import type { ProvisionedAppUser } from "@/server/auth/provision";
 import { isDatabaseConfigured } from "@/server/runtime";
 
@@ -190,6 +190,54 @@ export async function getDashboardData(user: AppUser) {
   };
 }
 
+export async function getRoleDashboardData(user: AppUser, targetRole: "claimant" | "respondent") {
+  const list = await getCaseList(user);
+
+  if (!user || !list.databaseReady) {
+    return {
+      databaseReady: list.databaseReady,
+      role: targetRole,
+      cases: [],
+      activities: [],
+      stats: {
+        total: 0,
+        active: 0,
+        resolved: 0,
+        urgent: 0,
+      },
+    };
+  }
+
+  const filteredCases = list.cases.filter((caseItem) => caseItem.role === targetRole);
+  const db = getDb();
+  const caseIds = filteredCases.map((caseItem) => caseItem.id);
+  const activities = caseIds.length
+    ? await db
+        .select()
+        .from(caseActivities)
+        .where(inArray(caseActivities.caseId, caseIds))
+        .orderBy(desc(caseActivities.createdAt))
+        .limit(20)
+    : [];
+
+  return {
+    databaseReady: true,
+    role: targetRole,
+    cases: filteredCases,
+    activities,
+    stats: {
+      total: filteredCases.length,
+      active: filteredCases.filter((caseItem) =>
+        ["filed", "under_review", "hearing_scheduled", "in_arbitration", "awaiting_decision"].includes(caseItem.status),
+      ).length,
+      resolved: filteredCases.filter((caseItem) => caseItem.status === "resolved").length,
+      urgent: filteredCases.filter((caseItem) =>
+        caseItem.priority === "urgent" || caseItem.priority === "high",
+      ).length,
+    },
+  };
+}
+
 export async function getCaseDetail(user: AppUser, caseId: string) {
   if (!user || !isDatabaseConfigured()) {
     return null;
@@ -209,7 +257,7 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     return null;
   }
 
-  const [activityRows, evidenceRows, witnessRows, consultantRows, expertiseRows, messageRows] = await Promise.all([
+  const [activityRows, evidenceRows, witnessRows, consultantRows, expertiseRows, messageRows, conversations] = await Promise.all([
     db
       .select()
       .from(caseActivities)
@@ -221,7 +269,42 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     db.select().from(consultants).where(eq(consultants.caseId, caseId)).orderBy(desc(consultants.createdAt)),
     db.select().from(expertiseRequests).where(eq(expertiseRequests.caseId, caseId)).orderBy(desc(expertiseRequests.createdAt)),
     db.select().from(caseMessages).where(eq(caseMessages.caseId, caseId)).orderBy(desc(caseMessages.createdAt)).limit(20),
+    user.email
+      ? db
+          .select()
+          .from(lawyerConversations)
+          .where(
+            and(
+              eq(lawyerConversations.caseId, caseId),
+              eq(lawyerConversations.userEmail, user.email),
+            ),
+          )
+          .orderBy(desc(lawyerConversations.updatedAt))
+          .limit(1)
+      : Promise.resolve([]),
   ]);
+
+  const todoItems = [
+    !caseItem.claimantLawyerKey ? { key: "claimant-lawyer", label: "Claimant must choose a lawyer" } : null,
+    !caseItem.respondentLawyerKey && caseItem.respondentEmail ? { key: "respondent-lawyer", label: "Respondent must choose a lawyer" } : null,
+    caseItem.status === "draft" ? { key: "file-case", label: "File the case to start the workflow" } : null,
+    evidenceRows.length === 0 ? { key: "add-evidence", label: "Add initial evidence" } : null,
+    witnessRows.length === 0 ? { key: "add-witness", label: "Add witnesses if relevant" } : null,
+    !activityRows.some((item) => item.title === "Defendant notified") && caseItem.status !== "draft"
+      ? { key: "notify-respondent", label: "Notify the respondent" }
+      : null,
+    caseItem.status === "filed" && !caseItem.hearingDate
+      ? { key: "schedule-hearing", label: "Schedule a hearing or review" }
+      : null,
+  ].filter((item): item is { key: string; label: string } => item !== null);
+
+  const progressStages = [
+    { key: "filed", label: "Filed", active: caseItem.status !== "draft" },
+    { key: "notified", label: "Respondent notified", active: activityRows.some((item) => item.title === "Defendant notified") },
+    { key: "evidence", label: "Evidence gathering", active: evidenceRows.length > 0 },
+    { key: "hearing", label: "Hearing scheduled", active: caseItem.status === "hearing_scheduled" || Boolean(caseItem.hearingDate) },
+    { key: "decision", label: "Decision phase", active: ["in_arbitration", "awaiting_decision", "resolved"].includes(caseItem.status) },
+  ];
 
   return {
     case: caseItem,
@@ -233,6 +316,9 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     consultants: consultantRows,
     expertiseRequests: expertiseRows,
     messages: messageRows,
+    conversation: conversations[0] ?? null,
+    todoItems,
+    progressStages,
     summaryCards: [
       { label: "Evidence", value: evidenceRows.length },
       { label: "Witnesses", value: witnessRows.length },

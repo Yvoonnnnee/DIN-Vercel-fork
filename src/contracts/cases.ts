@@ -50,7 +50,23 @@ export const caseMutationSchema = z.object({
   currency: z.string().default("USD"),
   claimantClaims: z.array(claimSchema).default([]),
   respondentClaims: z.array(claimSchema).default([]),
+  claimantLawyerKey: z.string().optional().nullable(),
   saveMode: z.enum(["draft", "file"]).default("draft"),
+});
+
+export const caseClaimsUpdateSchema = z.object({
+  claimantClaims: z.array(claimSchema).default([]),
+  respondentClaims: z.array(claimSchema).default([]),
+});
+
+export const caseLawyerSelectionSchema = z.object({
+  side: z.enum(["claimant", "respondent"]),
+  lawyerKey: z.string().min(1),
+});
+
+export const hearingScheduleSchema = z.object({
+  hearingDate: z.string().min(1),
+  arbitrator: z.string().min(1),
 });
 
 export const evidenceCreateSchema = z.object({

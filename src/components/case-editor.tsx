@@ -3,6 +3,9 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
+import { LawyerSelectScreen } from "@/components/lawyer-select-screen";
+import { PreFilingLawyerChat } from "@/components/pre-filing-lawyer-chat";
+import type { LawyerProfile } from "@/lib/lawyers";
 
 type Claim = {
   claim: string;
@@ -26,6 +29,7 @@ type CaseEditorProps = {
     currency: string;
     claimantClaims: Record<string, unknown>[] | null;
     respondentClaims: Record<string, unknown>[] | null;
+    claimantLawyerKey?: string | null;
   };
 };
 
@@ -58,6 +62,7 @@ export function CaseEditor({ mode, initialCase }: CaseEditorProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [selectedLawyer, setSelectedLawyer] = useState<LawyerProfile | null>(null);
   const [form, setForm] = useState({
     description: initialCase?.description ?? "",
     category: initialCase?.category ?? "commercial",
@@ -113,6 +118,7 @@ export function CaseEditor({ mode, initialCase }: CaseEditorProps) {
       claimAmount: form.claimAmount ? Number(form.claimAmount) : null,
       claimantClaims: form.claimantClaims.filter((claim) => claim.claim.trim()),
       respondentClaims: form.respondentClaims.filter((claim) => claim.claim.trim()),
+      claimantLawyerKey: initialCase?.claimantLawyerKey || selectedLawyer?.id || null,
       saveMode,
     };
 
@@ -140,6 +146,10 @@ export function CaseEditor({ mode, initialCase }: CaseEditorProps) {
     });
   }
 
+  if (mode === "create" && !selectedLawyer) {
+    return <LawyerSelectScreen partyRole="claimant" onSelect={setSelectedLawyer} />;
+  }
+
   return (
     <div className="space-y-8">
       <div className="space-y-2">
@@ -151,6 +161,31 @@ export function CaseEditor({ mode, initialCase }: CaseEditorProps) {
         </h1>
         <p className="text-sm text-slate-600">Preview title: {titlePreview}</p>
       </div>
+
+      {mode === "create" && selectedLawyer ? (
+        <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-[0.16em] text-slate-400">Chosen lawyer</div>
+              <h2 className="mt-2 text-2xl font-semibold text-ink">{selectedLawyer.name}</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                {selectedLawyer.style}. {selectedLawyer.tagline}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedLawyer(null)}
+              className="rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400"
+            >
+              Change lawyer
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {mode === "create" && selectedLawyer ? (
+        <PreFilingLawyerChat lawyerKey={selectedLawyer.id} draftCaseData={form} />
+      ) : null}
 
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">

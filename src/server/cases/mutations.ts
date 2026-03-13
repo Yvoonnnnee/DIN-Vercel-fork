@@ -12,9 +12,12 @@ import {
 import type { ProvisionedAppUser } from "@/server/auth/provision";
 import {
   caseMutationSchema,
+  caseClaimsUpdateSchema,
+  caseLawyerSelectionSchema,
   consultantCreateSchema,
   evidenceCreateSchema,
   expertiseCreateSchema,
+  hearingScheduleSchema,
   messageCreateSchema,
   witnessCreateSchema,
 } from "@/contracts/cases";
@@ -113,6 +116,7 @@ export async function createCase(user: AppUser, payload: unknown) {
       currency: parsed.currency,
       claimantClaims: parsed.claimantClaims,
       respondentClaims: parsed.respondentClaims,
+      claimantLawyerKey: parsed.claimantLawyerKey || null,
     })
     .returning();
 
@@ -158,6 +162,7 @@ export async function updateCase(user: AppUser, caseId: string, payload: unknown
       currency: parsed.currency,
       claimantClaims: parsed.claimantClaims,
       respondentClaims: parsed.respondentClaims,
+      claimantLawyerKey: parsed.claimantLawyerKey || authorized.case.claimantLawyerKey,
     })
     .where(eq(cases.id, caseId))
     .returning();
@@ -420,4 +425,111 @@ export async function getLatestCaseActivity(caseId: string) {
     .limit(8);
 
   return rows;
+}
+
+export async function updateCaseClaims(user: AppUser, caseId: string, payload: unknown) {
+  const authorized = await getAuthorizedCase(user, caseId);
+  if (!authorized || authorized.role === "moderator") {
+    throw new Error("Forbidden");
+  }
+
+  const parsed = caseClaimsUpdateSchema.parse(payload);
+  const db = getDb();
+  const updated = await db
+    .update(cases)
+    .set({
+      claimantClaims: parsed.claimantClaims,
+      respondentClaims: parsed.respondentClaims,
+    })
+    .where(eq(cases.id, caseId))
+    .returning();
+
+  await createCaseActivity(
+    caseId,
+    "note",
+    "Claims updated",
+    "Claim and response details were updated.",
+    user?.fullName || user?.email || "Unknown user",
+  );
+
+  return updated[0];
+}
+
+export async function selectCaseLawyer(user: AppUser, caseId: string, payload: unknown) {
+  const authorized = await getAuthorizedCase(user, caseId);
+  if (!authorized) {
+    throw new Error("Forbidden");
+  }
+
+  const parsed = caseLawyerSelectionSchema.parse(payload);
+  if (parsed.side !== authorized.role) {
+    throw new Error("Forbidden");
+  }
+
+  const db = getDb();
+  const updated = await db
+    .update(cases)
+    .set(
+      parsed.side === "claimant"
+        ? { claimantLawyerKey: parsed.lawyerKey }
+        : { respondentLawyerKey: parsed.lawyerKey },
+    )
+    .where(eq(cases.id, caseId))
+    .returning();
+
+  await createCaseActivity(
+    caseId,
+    "note",
+    "Lawyer selected",
+    `${parsed.side} selected lawyer ${parsed.lawyerKey}.`,
+    user?.fullName || user?.email || "Unknown user",
+  );
+
+  return updated[0];
+}
+
+export async function notifyRespondent(user: AppUser, caseId: string) {
+  const authorized = await getAuthorizedCase(user, caseId);
+  if (!authorized || authorized.role !== "claimant") {
+    throw new Error("Forbidden");
+  }
+
+  await createCaseActivity(
+    caseId,
+    "other",
+    "Defendant notified",
+    "Respondent notification triggered from the claimant workflow.",
+    user?.fullName || user?.email || "Unknown user",
+  );
+
+  return { success: true };
+}
+
+export async function scheduleHearing(user: AppUser, caseId: string, payload: unknown) {
+  const authorized = await getAuthorizedCase(user, caseId);
+  if (!authorized || (authorized.role !== "moderator" && user?.role !== "admin")) {
+    throw new Error("Forbidden");
+  }
+
+  const parsed = hearingScheduleSchema.parse(payload);
+  const db = getDb();
+  const updated = await db
+    .update(cases)
+    .set({
+      status: "hearing_scheduled",
+      hearingDate: new Date(parsed.hearingDate),
+      arbitratorAssignedName: parsed.arbitrator,
+    })
+    .where(eq(cases.id, caseId))
+    .returning();
+
+  await createCaseActivity(
+    caseId,
+    "hearing_scheduled",
+    "Hearing scheduled",
+    `${parsed.arbitrator} scheduled a hearing for ${parsed.hearingDate}.`,
+    user?.fullName || user?.email || "Unknown user",
+  );
+
+  return updated[0];
 }
