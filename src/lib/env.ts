@@ -1,10 +1,31 @@
 import { z } from "zod";
 
+function sanitizeOptionalString(value: unknown) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const firstChar = trimmed[0];
+  const lastChar = trimmed[trimmed.length - 1];
+
+  if ((firstChar === "\"" || firstChar === "'") && firstChar === lastChar) {
+    return trimmed.slice(1, -1).trim();
+  }
+
+  return trimmed;
+}
+
 const envSchema = z.object({
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().optional(),
   CLERK_SECRET_KEY: z.string().optional(),
   CLERK_WEBHOOK_SECRET: z.string().optional(),
-  DATABASE_URL: z.string().optional(),
+  DATABASE_URL: z.preprocess(sanitizeOptionalString, z.string().url().optional()),
   BLOB_READ_WRITE_TOKEN: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),

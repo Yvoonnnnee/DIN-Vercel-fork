@@ -17,7 +17,15 @@ export function getDb() {
   }
 
   if (!database) {
-    const sql = neon(env.DATABASE_URL);
+    let sql;
+    try {
+      sql = neon(env.DATABASE_URL);
+    } catch (error) {
+      throw new Error(
+        "DATABASE_URL is invalid after sanitization. Check for a malformed Vercel environment variable.",
+        { cause: error },
+      );
+    }
     database = drizzle(sql, { schema });
   }
 
