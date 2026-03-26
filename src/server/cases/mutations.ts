@@ -23,6 +23,7 @@ import {
 } from "@/contracts/cases";
 import { spendForAction } from "@/server/billing/service";
 import { assertAppUserActive } from "@/server/auth/provision";
+import { sendRespondentNotifyEmail } from "@/server/email/respondent-notify";
 
 type AppUser = ProvisionedAppUser | null;
 
@@ -494,11 +495,24 @@ export async function notifyRespondent(user: AppUser, caseId: string) {
     throw new Error("Forbidden");
   }
 
+  const respondentEmail = authorized.case.respondentEmail?.trim();
+  if (!respondentEmail) {
+    throw new Error("This case has no respondent email; add one before notifying.");
+  }
+
+  await sendRespondentNotifyEmail(respondentEmail, {
+    id: authorized.case.id,
+    title: authorized.case.title,
+    caseNumber: authorized.case.caseNumber,
+    claimantName: authorized.case.claimantName,
+    respondentName: authorized.case.respondentName,
+  });
+
   await createCaseActivity(
     caseId,
     "other",
     "Defendant notified",
-    "Respondent notification triggered from the claimant workflow.",
+    `Respondent notified by email at ${respondentEmail}.`,
     user?.fullName || user?.email || "Unknown user",
   );
 
