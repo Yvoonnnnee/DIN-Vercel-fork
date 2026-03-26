@@ -18,6 +18,7 @@ import {
   evidenceCreateSchema,
   expertiseCreateSchema,
   hearingScheduleSchema,
+  caseContactsUpdateSchema,
   messageCreateSchema,
   witnessCreateSchema,
 } from "@/contracts/cases";
@@ -517,6 +518,40 @@ export async function notifyRespondent(user: AppUser, caseId: string) {
   );
 
   return { success: true };
+}
+
+export async function updateCaseContacts(user: AppUser, caseId: string, payload: unknown) {
+  const authorized = await getAuthorizedCase(user, caseId);
+  if (!authorized || (authorized.role !== "claimant" && authorized.role !== "moderator")) {
+    throw new Error("Forbidden");
+  }
+
+  const parsed = caseContactsUpdateSchema.parse(payload);
+  const db = getDb();
+
+  const updated = await db
+    .update(cases)
+    .set({
+      claimantName: parsed.claimantName,
+      claimantEmail: parsed.claimantEmail,
+      claimantPhone: parsed.claimantPhone || null,
+      respondentName: parsed.respondentName,
+      respondentEmail: parsed.respondentEmail,
+      respondentPhone: parsed.respondentPhone || null,
+      title: buildCaseTitle(parsed.claimantName, parsed.respondentName),
+    })
+    .where(eq(cases.id, caseId))
+    .returning();
+
+  await createCaseActivity(
+    caseId,
+    "status_change",
+    "Contacts updated",
+    "Claimant updated party contact information.",
+    user?.fullName || user?.email || "Unknown user",
+  );
+
+  return updated[0];
 }
 
 export async function scheduleHearing(user: AppUser, caseId: string, payload: unknown) {

@@ -37,8 +37,10 @@ type CaseDetailWorkspaceProps = {
       currency: string;
       claimantName: string | null;
       claimantEmail: string | null;
+      claimantPhone: string | null;
       respondentName: string | null;
       respondentEmail: string | null;
+      respondentPhone: string | null;
       claimantClaims: Record<string, unknown>[] | null;
       respondentClaims: Record<string, unknown>[] | null;
       claimantLawyerKey: string | null;
@@ -106,7 +108,35 @@ export function CaseDetailWorkspace({ detail }: CaseDetailWorkspaceProps) {
   const [hearingDate, setHearingDate] = useState("");
   const [arbitrator, setArbitrator] = useState(detail.case.arbitratorAssignedName || "");
   const [error, setError] = useState<string | null>(null);
+  const [contactsError, setContactsError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [contactsSaving, setContactsSaving] = useState(false);
+  const [claimantName, setClaimantName] = useState(detail.case.claimantName || "");
+  const [claimantEmail, setClaimantEmail] = useState(detail.case.claimantEmail || "");
+  const [claimantPhone, setClaimantPhone] = useState(detail.case.claimantPhone || "");
+  const [respondentName, setRespondentName] = useState(detail.case.respondentName || "");
+  const [respondentEmail, setRespondentEmail] = useState(detail.case.respondentEmail || "");
+  const [respondentPhone, setRespondentPhone] = useState(detail.case.respondentPhone || "");
+  
+  // Store original values to track changes
+  const originalContacts = {
+    claimantName: detail.case.claimantName || "",
+    claimantEmail: detail.case.claimantEmail || "",
+    claimantPhone: detail.case.claimantPhone || "",
+    respondentName: detail.case.respondentName || "",
+    respondentEmail: detail.case.respondentEmail || "",
+    respondentPhone: detail.case.respondentPhone || "",
+  };
+  
+  // Check if any contact fields have changed
+  const contactsHaveChanged = 
+    claimantName !== originalContacts.claimantName ||
+    claimantEmail !== originalContacts.claimantEmail ||
+    claimantPhone !== originalContacts.claimantPhone ||
+    respondentName !== originalContacts.respondentName ||
+    respondentEmail !== originalContacts.respondentEmail ||
+    respondentPhone !== originalContacts.respondentPhone;
+  
   const selectedLawyer =
     detail.role === "respondent"
       ? getLawyerById(detail.case.respondentLawyerKey || detail.conversation?.lawyerPersonality, "respondent")
@@ -126,6 +156,33 @@ export function CaseDetailWorkspace({ detail }: CaseDetailWorkspaceProps) {
     }
     router.refresh();
     return true;
+  }
+
+  async function saveContacts() {
+    setContactsError(null);
+    setContactsSaving(true);
+    try {
+      const response = await fetch(`/api/cases/${detail.case.id}/contacts`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          claimantName,
+          claimantEmail,
+          claimantPhone: claimantPhone.trim() ? claimantPhone : null,
+          respondentName,
+          respondentEmail,
+          respondentPhone: respondentPhone.trim() ? respondentPhone : null,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        setContactsError(result.error?.message || "Failed to update contacts.");
+        return;
+      }
+      router.refresh();
+    } finally {
+      setContactsSaving(false);
+    }
   }
 
   async function patch(path: string, body: unknown) {
@@ -319,6 +376,98 @@ export function CaseDetailWorkspace({ detail }: CaseDetailWorkspaceProps) {
                 </Link>
               ) : (
                 <div className="mt-3 text-sm text-slate-600">No lawyer selected.</div>
+              )}
+            </div>
+
+            <div className="rounded-[24px] border border-slate-200 p-5">
+              <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Contacts</div>
+              {detail.role === "claimant" || detail.role === "moderator" ? (
+                <div className="mt-4 space-y-4">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Claimant</div>
+                      <div className="mt-3 space-y-2">
+                        <input
+                          value={claimantName}
+                          onChange={(event) => setClaimantName(event.target.value)}
+                          placeholder="Name"
+                          className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+                        />
+                        <input
+                          value={claimantEmail}
+                          onChange={(event) => setClaimantEmail(event.target.value)}
+                          placeholder="Email"
+                          className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+                        />
+                        <input
+                          value={claimantPhone}
+                          onChange={(event) => setClaimantPhone(event.target.value)}
+                          placeholder="Phone (optional)"
+                          className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Respondent</div>
+                      <div className="mt-3 space-y-2">
+                        <input
+                          value={respondentName}
+                          onChange={(event) => setRespondentName(event.target.value)}
+                          placeholder="Name"
+                          className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+                        />
+                        <input
+                          value={respondentEmail}
+                          onChange={(event) => setRespondentEmail(event.target.value)}
+                          placeholder="Email"
+                          className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+                        />
+                        <input
+                          value={respondentPhone}
+                          onChange={(event) => setRespondentPhone(event.target.value)}
+                          placeholder="Phone (optional)"
+                          className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {contactsError ? (
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                      {contactsError}
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={contactsSaving || !contactsHaveChanged}
+                      onClick={() => void saveContacts()}
+                      className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      {contactsSaving ? "Saving..." : "Save contacts"}
+                    </button>
+                    <div className="text-sm text-slate-500">
+                      Updating respondent email controls where "Notify respondent" is sent.
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Claimant</div>
+                    <div className="mt-2 text-sm font-semibold text-slate-900">{detail.case.claimantName || "—"}</div>
+                    <div className="mt-1 text-sm text-slate-600">{detail.case.claimantEmail || "—"}</div>
+                    <div className="mt-1 text-sm text-slate-600">{detail.case.claimantPhone || "—"}</div>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Respondent</div>
+                    <div className="mt-2 text-sm font-semibold text-slate-900">{detail.case.respondentName || "—"}</div>
+                    <div className="mt-1 text-sm text-slate-600">{detail.case.respondentEmail || "—"}</div>
+                    <div className="mt-1 text-sm text-slate-600">{detail.case.respondentPhone || "—"}</div>
+                  </div>
+                </div>
               )}
             </div>
           </section>
