@@ -38,6 +38,7 @@ const envSchema = z.object({
   EMAIL_FROM: z.string().optional(),
   NEXT_PUBLIC_APP_URL: z.string().default("http://localhost:3000"),
   ELEVENLABS_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
 });
 
 export const env = envSchema.parse({
@@ -57,4 +58,5 @@ export const env = envSchema.parse({
   EMAIL_FROM: process.env.EMAIL_FROM,
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
   ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
 });

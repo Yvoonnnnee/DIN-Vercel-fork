@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { GeminiTranscription, TranscriptionResult } from "@/lib/gemini-transcription";
+import { TranscriptionResult } from "@/lib/gemini-transcription";
 
 interface AITestingInterfaceProps {
   caseId: string;
@@ -14,8 +14,6 @@ export function AITestingInterface({ caseId, caseTitle }: AITestingInterfaceProp
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const transcriptionService = new GeminiTranscription();
-
   const handleAudioUpload = async () => {
     if (!audioFile) {
       setError("Please select an audio file first");
@@ -26,8 +24,21 @@ export function AITestingInterface({ caseId, caseTitle }: AITestingInterfaceProp
     setError(null);
 
     try {
-      const arrayBuffer = await audioFile.arrayBuffer();
-      const transcription = await transcriptionService.transcribeAudio(arrayBuffer, audioFile.type.split('/')[1]);
+      const formData = new FormData();
+      formData.append('audio', audioFile);
+      formData.append('format', audioFile.type.split('/')[1]);
+
+      const response = await fetch('/api/transcription', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Transcription failed');
+      }
+
+      const transcription = await response.json();
       setResult(transcription);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transcription failed");

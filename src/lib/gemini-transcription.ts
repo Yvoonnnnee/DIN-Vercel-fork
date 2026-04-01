@@ -1,8 +1,9 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { env } from './env';
 
 // Initialize Gemini AI
-const genAI = process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY
-  ? new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY as any)
+const genAI = env.GEMINI_API_KEY
+  ? new GoogleGenerativeAI(env.GEMINI_API_KEY as any)
   : null;
 
 export interface TranscriptionSegment {
@@ -31,6 +32,10 @@ export class GeminiTranscription {
   }
 
   async transcribeAudio(audioBuffer: ArrayBuffer, audioFormat: string = 'webm'): Promise<TranscriptionResult> {
+    if (!this.model || !genAI) {
+      throw new Error('Gemini API not configured. Please add GEMINI_API_KEY to environment variables for real transcription, or use Demo Mode for testing.');
+    }
+
     try {
       // Convert audio to base64 for Gemini
       const audioBase64 = this.arrayBufferToBase64(audioBuffer);
