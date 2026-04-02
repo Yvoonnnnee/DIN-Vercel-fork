@@ -52,15 +52,26 @@ export function HearingScheduler({ caseId, caseTitle }: HearingSchedulerProps) {
       setSuccess(true);
 
       // Update hearing status in database
-      await fetch(`/api/cases/${caseId}/hearing`, {
+      const hearingPayload = {
+        hearingDate: startNow ? new Date().toISOString() : hearingDate,
+        meetingUrl: data.meeting?.meetingUrl,
+        meetingId: data.meeting?.meetingId,
+        endTime: startNow 
+          ? new Date(Date.now() + parseInt(duration) * 60 * 1000).toISOString() 
+          : new Date(new Date(hearingDate).getTime() + parseInt(duration) * 60 * 1000).toISOString(),
+        status: 'scheduled'
+      };
+      
+      const hearingResponse = await fetch(`/api/cases/${caseId}/hearing`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hearingDate: startNow ? new Date().toISOString() : hearingDate,
-          meetingUrl: data.meeting?.meetingUrl,
-          status: 'scheduled'
-        })
+        body: JSON.stringify(hearingPayload)
       });
+      
+      if (!hearingResponse.ok) {
+        const errorText = await hearingResponse.text();
+        throw new Error(`Failed to update hearing: ${hearingResponse.status}`);
+      }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create meeting');

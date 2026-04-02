@@ -8,6 +8,7 @@ import {
   evidence,
   expertiseRequests,
   witnesses,
+  hearings,
 } from "@/db/schema";
 import type { ProvisionedAppUser } from "@/server/auth/provision";
 import {
@@ -25,6 +26,7 @@ import {
 import { spendForAction } from "@/server/billing/service";
 import { assertAppUserActive } from "@/server/auth/provision";
 import { sendRespondentNotifyEmail } from "@/server/email/respondent-notify";
+import { randomUUID } from "crypto";
 
 type AppUser = ProvisionedAppUser | null;
 
@@ -562,11 +564,29 @@ export async function scheduleHearing(user: AppUser, caseId: string, payload: un
 
   const parsed = hearingScheduleSchema.parse(payload);
   const db = getDb();
+  
+  // Create hearing record
+  const hearingId = randomUUID();
+  await db.insert(hearings).values({
+    id: hearingId,
+    caseId,
+    scheduledStartTime: new Date(parsed.hearingDate),
+    scheduledEndTime: parsed.endTime ? new Date(parsed.endTime) : null,
+    meetingUrl: parsed.meetingUrl || null,
+    meetingPlatform: 'google_meet',
+    meetingId: parsed.meetingId || null,
+    status: 'scheduled',
+    phase: 'pre_hearing',
+    isRecording: 'false',
+    isTranscribing: 'true',
+    autoTranscribe: 'true',
+  });
+
+  // Update case with arbitrator and status
   const updated = await db
     .update(cases)
     .set({
       status: "hearing_scheduled",
-      hearingDate: new Date(parsed.hearingDate),
       arbitratorAssignedName: parsed.arbitrator,
     })
     .where(eq(cases.id, caseId))

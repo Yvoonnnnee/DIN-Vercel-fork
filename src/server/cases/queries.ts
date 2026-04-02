@@ -1,7 +1,7 @@
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { caseActivities, caseMessages, cases, consultants, evidence, expertiseRequests, lawyerConversations, witnesses } from "@/db/schema";
+import { caseActivities, caseMessages, cases, consultants, evidence, expertiseRequests, lawyerConversations, witnesses, hearings } from "@/db/schema";
 import type { ProvisionedAppUser } from "@/server/auth/provision";
 import { isDatabaseConfigured } from "@/server/runtime";
 
@@ -284,6 +284,10 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
       : Promise.resolve([]),
   ]);
 
+  // Check if case has any hearings
+  const hearingRows = await db.select().from(hearings).where(eq(hearings.caseId, caseId)).limit(1);
+  const hasHearing = hearingRows.length > 0;
+
   const todoItems = [
     !caseItem.claimantLawyerKey ? { key: "claimant-lawyer", label: "Claimant must choose a lawyer" } : null,
     !caseItem.respondentLawyerKey && caseItem.respondentEmail ? { key: "respondent-lawyer", label: "Respondent must choose a lawyer" } : null,
@@ -293,7 +297,7 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     !activityRows.some((item) => item.title === "Defendant notified") && caseItem.status !== "draft"
       ? { key: "notify-respondent", label: "Notify the respondent" }
       : null,
-    caseItem.status === "filed" && !caseItem.hearingDate
+    caseItem.status === "filed" && !hasHearing
       ? { key: "schedule-hearing", label: "Schedule a hearing or review" }
       : null,
   ].filter((item): item is { key: string; label: string } => item !== null);
@@ -302,7 +306,7 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     { key: "filed", label: "Filed", active: caseItem.status !== "draft" },
     { key: "notified", label: "Respondent notified", active: activityRows.some((item) => item.title === "Defendant notified") },
     { key: "evidence", label: "Evidence gathering", active: evidenceRows.length > 0 },
-    { key: "hearing", label: "Hearing scheduled", active: caseItem.status === "hearing_scheduled" || Boolean(caseItem.hearingDate) },
+    { key: "hearing", label: "Hearing scheduled", active: caseItem.status === "hearing_scheduled" || hasHearing },
     { key: "decision", label: "Decision phase", active: ["in_arbitration", "awaiting_decision", "resolved"].includes(caseItem.status) },
   ];
 

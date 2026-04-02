@@ -67,6 +67,9 @@ export const caseLawyerSelectionSchema = z.object({
 export const hearingScheduleSchema = z.object({
   hearingDate: z.string().min(1),
   arbitrator: z.string().min(1),
+  endTime: z.string().optional(),
+  meetingUrl: z.string().url().optional(),
+  meetingId: z.string().optional(),
 });
 
 export const caseContactsUpdateSchema = z.object({
