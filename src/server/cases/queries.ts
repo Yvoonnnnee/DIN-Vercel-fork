@@ -1,7 +1,7 @@
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { caseActivities, caseMessages, cases, consultants, evidence, expertiseRequests, lawyerConversations, witnesses, hearings } from "@/db/schema";
+import { caseActivities, caseMessages, cases, consultants, evidence, expertiseRequests, lawyerConversations, witnesses, hearings, caseAudits } from "@/db/schema";
 import type { ProvisionedAppUser } from "@/server/auth/provision";
 import { isDatabaseConfigured } from "@/server/runtime";
 
@@ -14,6 +14,48 @@ type CaseFilters = {
 
 function normalizeEmail(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
+}
+
+function calculateSmartStatus(caseItem: typeof cases.$inferSelect, hearingRows: any[], activityRows: any[]) {
+  // Priority order: resolved > awaiting_decision > in_arbitration > hearing_scheduled > filed > draft
+  
+  // 1. Check if truly resolved (not just aborted/failed judgement)
+  if (caseItem.finalDecision) {
+    // Check if this is a genuine resolution vs aborted process
+    const decisionContent = typeof caseItem.finalDecision === 'string' ? caseItem.finalDecision.toLowerCase() : '';
+    
+    // Don't treat aborted/failed processes as final resolutions
+    if (decisionContent.includes('aborted') || 
+        decisionContent.includes('lack of evidence') || 
+        decisionContent.includes('insufficient') ||
+        decisionContent.includes('failed') ||
+        decisionContent.includes('incomplete')) {
+      // This is a failed process, not a final resolution
+      if (caseItem.judgementJson) return "awaiting_decision";
+      if (caseItem.arbitrationProposalJson) return "in_arbitration";
+      return "filed";
+    }
+    
+    return "resolved";
+  }
+  
+  // 2. Check if in decision phase
+  if (caseItem.judgementJson) return "awaiting_decision";
+  
+  // 3. Check if in arbitration
+  if (caseItem.arbitrationProposalJson) return "in_arbitration";
+  
+  // 4. Check if hearing is actually scheduled (not cancelled)
+  const activeHearing = hearingRows.find(h => 
+    h.status === "scheduled" || h.status === "in_progress" || h.status === "ai_ready"
+  );
+  if (activeHearing) return "hearing_scheduled";
+  
+  // 5. Check if filed (has notification activity)
+  if (activityRows.some(a => a.title === "Defendant notified")) return "filed";
+  
+  // 6. Default to draft
+  return "draft";
 }
 
 function resolveCaseRole(caseItem: typeof cases.$inferSelect, user: NonNullable<AppUser>) {
@@ -257,7 +299,7 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     return null;
   }
 
-  const [activityRows, evidenceRows, witnessRows, consultantRows, expertiseRows, messageRows, conversations] = await Promise.all([
+  const [activityRows, evidenceRows, witnessRows, consultantRows, expertiseRows, messageRows, conversations, auditRows] = await Promise.all([
     db
       .select()
       .from(caseActivities)
@@ -282,11 +324,21 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
           .orderBy(desc(lawyerConversations.updatedAt))
           .limit(1)
       : Promise.resolve([]),
+    db.select().from(caseAudits).where(eq(caseAudits.caseId, caseId)).orderBy(desc(caseAudits.createdAt)),
   ]);
 
   // Check if case has any hearings
-  const hearingRows = await db.select().from(hearings).where(eq(hearings.caseId, caseId)).limit(1);
+  const hearingRows = await db.select().from(hearings).where(eq(hearings.caseId, caseId));
   const hasHearing = hearingRows.length > 0;
+
+  // Calculate smart status and sync if needed
+  const smartStatus = calculateSmartStatus(caseItem, hearingRows, activityRows);
+  
+  // Update case status if it's out of sync
+  if (smartStatus !== caseItem.status) {
+    await db.update(cases).set({ status: smartStatus }).where(eq(cases.id, caseId));
+    caseItem.status = smartStatus; // Update local reference
+  }
 
   const todoItems = [
     !caseItem.claimantLawyerKey ? { key: "claimant-lawyer", label: "Claimant must choose a lawyer" } : null,
@@ -321,6 +373,8 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     expertiseRequests: expertiseRows,
     messages: messageRows,
     conversation: conversations[0] ?? null,
+    audits: auditRows,
+    hearings: hearingRows,
     todoItems,
     progressStages,
     summaryCards: [

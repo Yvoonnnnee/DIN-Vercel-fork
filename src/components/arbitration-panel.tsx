@@ -69,12 +69,7 @@ export function ArbitrationPanel({ caseId, status, proposal, finalDecision }: Ar
         ) : null}
       </section>
 
-      <section className="rounded-[28px] bg-ink p-6 text-white">
-        <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Case status</div>
-        <div className="mt-3 text-3xl font-semibold tracking-tight capitalize">{status.replaceAll("_", " ")}</div>
-        <div className="mt-2 text-sm text-slate-300">{finalDecision || "No final decision recorded yet."}</div>
-      </section>
-
+      
       {!proposal ? (
         <section className="rounded-[28px] border border-slate-200 bg-white p-6 text-sm text-slate-600">
           No arbitration proposal has been generated yet.

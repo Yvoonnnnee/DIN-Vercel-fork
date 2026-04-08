@@ -270,15 +270,8 @@ export function CaseWorkspace(props: CaseWorkspaceProps) {
     <section className="space-y-6 rounded-[28px] border border-slate-200 bg-white p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Phase 3 workspace</div>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink">Supporting records</h2>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink">Case records</h2>
         </div>
-        <Link
-          href={`/cases/${props.caseId}/edit` as Route}
-          className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
-        >
-          Edit case
-        </Link>
       </div>
 
       {!props.hideSectionNav ? (

@@ -1,11 +1,18 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import React, { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { CaseWorkspace } from "@/components/case-workspace";
 import { LawyerChatPanel } from "@/components/lawyer-chat-panel";
+import { AuditPanel } from "@/components/audit-panel";
+import { ArbitrationPanel } from "@/components/arbitration-panel";
+import { HearingScheduler } from "@/components/hearing-scheduler";
+import { ExistingHearings } from "./existing-hearings";
+import { AITestingInterface } from "@/components/ai-testing-interface";
+import { VoiceTestPanel } from "@/components/voice-test-panel";
+import { JudgementPanel } from "@/components/judgement-panel";
 import { getLawyerById } from "@/lib/lawyers";
 import { formatCurrency, formatDateTime } from "@/server/format";
 
@@ -21,6 +28,14 @@ type WorkspaceRecord = {
   id: string;
   createdAt: string | Date;
   [key: string]: unknown;
+};
+
+type AuditRecord = {
+  id: string;
+  title: string | null;
+  requestedAt: string | Date;
+  snapshotJson: Record<string, unknown>;
+  auditJson: Record<string, unknown>;
 };
 
 type CaseDetailWorkspaceProps = {
@@ -56,6 +71,8 @@ type CaseDetailWorkspaceProps = {
     expertiseRequests: WorkspaceRecord[];
     messages: WorkspaceRecord[];
     activities: WorkspaceRecord[];
+    audits: AuditRecord[];
+    hearings: WorkspaceRecord[];
     conversation: {
       lawyerPersonality?: string | null;
       contextSummary?: string | null;
@@ -65,17 +82,21 @@ type CaseDetailWorkspaceProps = {
     progressStages: Array<{ key: string; label: string; active: boolean }>;
   };
   userRole?: string;
+  user?: any;
 };
 
 const tabs = [
-  { key: "overview", label: "Overview" },
+  { key: "overview", label: <span className="font-bold">Overview</span> },
   { key: "claims", label: "Claims" },
   { key: "evidence", label: "Evidence" },
   { key: "witnesses", label: "Witnesses" },
   { key: "consultants", label: "Consultants" },
   { key: "expertise", label: "Expertise" },
-  { key: "todo", label: "To-do" },
-  { key: "activity", label: "Activity" },
+  { key: "audit", label: "Audit" },
+  { key: "arbitration", label: "Arbitration" },
+  { key: "hearing", label: "Hearing" },
+  { key: "judgement", label: "Judgement" },
+  { key: "lawyer-chat", label: "Lawyer chat" },
 ] as const;
 
 function asClaims(input: Record<string, unknown>[] | null | undefined): Claim[] {
@@ -100,7 +121,7 @@ function asClaims(input: Record<string, unknown>[] | null | undefined): Claim[] 
   }));
 }
 
-export function CaseDetailWorkspace({ detail, userRole }: CaseDetailWorkspaceProps) {
+export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorkspaceProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["key"]>("overview");
   const [claimantClaims, setClaimantClaims] = useState(asClaims(detail.case.claimantClaims));
@@ -116,6 +137,53 @@ export function CaseDetailWorkspace({ detail, userRole }: CaseDetailWorkspacePro
   const [respondentName, setRespondentName] = useState(detail.case.respondentName || "");
   const [respondentEmail, setRespondentEmail] = useState(detail.case.respondentEmail || "");
   const [respondentPhone, setRespondentPhone] = useState(detail.case.respondentPhone || "");
+
+  
+  // Calculate selectedLawyer before todo items to avoid initialization error
+  const selectedLawyer =
+    detail.role === "respondent"
+      ? getLawyerById(detail.case.respondentLawyerKey || detail.conversation?.lawyerPersonality, "respondent")
+      : getLawyerById(detail.case.claimantLawyerKey || detail.conversation?.lawyerPersonality, "claimant");
+
+  // Calculate todo items dynamically from database data
+  const [todoItems, setTodoItems] = useState([
+    { key: "lawyer", label: "Lawyer selection", completed: selectedLawyer !== null },
+    { key: "claims", label: "Submit claim(s)", completed: (detail.case.claimantClaims?.length || 0) + (detail.case.respondentClaims?.length || 0) > 0 },
+    { key: "evidence", label: "Submit evidence", completed: detail.evidence.length > 0 },
+    { key: "audit", label: "Request audit", completed: detail.audits.length > 0 },
+    { key: "notify", label: "Notify respondent", completed: detail.activities.some(activity => activity.title === "Defendant notified") },
+    { key: "witnesses", label: "Add witnesses", completed: detail.witnesses.length > 0 },
+    { key: "consultants", label: "Add consultants", completed: detail.consultants.length > 0 },
+    { key: "expertise", label: "Add expertise", completed: detail.expertiseRequests.length > 0 },
+    { key: "hearing", label: "Schedule hearing", completed: detail.hearings.length > 0 },
+    { key: "hearing-complete", label: "Hearing", completed: detail.hearings.some(h => h.status === "completed") },
+    { key: "arbitration", label: "Request arbitration", completed: !!(detail.case as any).arbitrationProposalJson },
+    { key: "judgement", label: "Request judgement", completed: !!(detail.case as any).judgementJson },
+  ]);
+
+  // Type for interactive todo items
+  type InteractiveTodoItem = {
+    key: string;
+    label: string;
+    completed: boolean;
+  };
+
+  // Calculate tab counts
+  const tabCounts = {
+    claims: (detail.case.claimantClaims?.length || 0) + (detail.case.respondentClaims?.length || 0),
+    evidence: detail.evidence.length,
+    witnesses: detail.witnesses.length,
+    consultants: detail.consultants.length,
+    expertise: detail.expertiseRequests.length
+  };
+
+  function toggleTodoItem(key: string) {
+    setTodoItems(items => 
+      items.map((item: InteractiveTodoItem) => 
+        item.key === key ? { ...item, completed: !item.completed } : item
+      )
+    );
+  }
   
   // Store original values to track changes
   const originalContacts = {
@@ -135,12 +203,44 @@ export function CaseDetailWorkspace({ detail, userRole }: CaseDetailWorkspacePro
     respondentName !== originalContacts.respondentName ||
     respondentEmail !== originalContacts.respondentEmail ||
     respondentPhone !== originalContacts.respondentPhone;
-  
-  const selectedLawyer =
-    detail.role === "respondent"
-      ? getLawyerById(detail.case.respondentLawyerKey || detail.conversation?.lawyerPersonality, "respondent")
-      : getLawyerById(detail.case.claimantLawyerKey || detail.conversation?.lawyerPersonality, "claimant");
 
+  // Update todo items when database data changes
+  React.useEffect(() => {
+    // Check if respondent was notified via activities
+    const respondentNotified = detail.activities.some(activity => 
+      activity.title === "Defendant notified"
+    );
+    
+    // Check hearing status from hearings data
+    const hearingScheduled = detail.hearings.length > 0;
+    const hearingCompleted = detail.hearings.some(h => h.status === "completed");
+    
+    const freshTodoItems: InteractiveTodoItem[] = [
+      { key: "lawyer", label: "Lawyer selection", completed: selectedLawyer !== null },
+      { key: "claims", label: "Submit claim(s)", completed: (detail.case.claimantClaims?.length || 0) + (detail.case.respondentClaims?.length || 0) > 0 },
+      { key: "evidence", label: "Submit evidence", completed: detail.evidence.length > 0 },
+      { key: "audit", label: "Request audit", completed: detail.audits.length > 0 },
+      { key: "notify", label: "Notify respondent", completed: respondentNotified },
+      { key: "witnesses", label: "Add witnesses", completed: detail.witnesses.length > 0 },
+      { key: "consultants", label: "Add consultants", completed: detail.consultants.length > 0 },
+      { key: "expertise", label: "Add expertise", completed: detail.expertiseRequests.length > 0 },
+      { key: "hearing", label: "Schedule hearing", completed: hearingScheduled },
+      { key: "hearing-complete", label: "Hearing", completed: hearingCompleted },
+      { key: "arbitration", label: "Request arbitration", completed: !!(detail.case as any).arbitrationProposalJson },
+      { key: "judgement", label: "Request judgement", completed: !!(detail.case as any).judgementJson },
+      { key: "appeal", label: "Request appeal", completed: false }, // TODO: Parked for future implementation
+      { key: "verdict", label: "Request final verdict", completed: Boolean(detail.case.finalDecision) }
+    ];
+    
+    setTodoItems(currentItems => 
+      currentItems.map(item => {
+        const freshItem = freshTodoItems.find(f => f.key === item.key);
+        return freshItem ? { ...item, completed: !!freshItem.completed } : item;
+      })
+    );
+  }, [detail, selectedLawyer]);
+
+  
   async function post(path: string, body?: unknown) {
     setError(null);
     const response = await fetch(path, {
@@ -311,23 +411,45 @@ export function CaseDetailWorkspace({ detail, userRole }: CaseDetailWorkspacePro
             {detail.case.description || "No case description has been added yet."}
           </p>
         </div>
-        <div role="tablist" aria-label="Case workspace sections" className="flex flex-wrap gap-2">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setActiveTab(tab.key)}
-              role="tab"
-              id={`tab-${tab.key}`}
-              aria-selected={activeTab === tab.key}
-              aria-controls={`panel-${tab.key}`}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                activeTab === tab.key ? "bg-ink text-white" : "border border-slate-300 text-slate-700 hover:border-slate-400"
-              }`}
-            >
-              {tab.label}
-            </button>
+        <div className="flex items-start justify-between gap-4">
+          <div role="tablist" aria-label="Case workspace sections" className="flex flex-wrap gap-2">
+            {tabs.map((tab) => (
+            <React.Fragment key={tab.key}>
+              {tab.key === "audit" && <div className="w-full"></div>}
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                role="tab"
+                id={`tab-${tab.key}`}
+                aria-selected={activeTab === tab.key}
+                aria-controls={`panel-${tab.key}`}
+                className={`relative rounded-full px-4 py-2 text-sm font-medium transition ${
+                  activeTab === tab.key 
+                    ? "bg-ink text-white border-2 border-ink" 
+                    : "border border-slate-300 text-slate-700 hover:border-slate-400"
+                } ${tab.key === "overview" ? "font-bold border-2 border-ink" : ""}`}
+              >
+                {tab.label}
+                {tabCounts[tab.key as keyof typeof tabCounts] > 0 && (
+                  <span className="ml-2 text-xs text-slate-400">
+                    {tabCounts[tab.key as keyof typeof tabCounts]}
+                  </span>
+                )}
+              </button>
+            </React.Fragment>
           ))}
+          </div>
+          
+          {/* Admin Edit Button */}
+          {userRole === "admin" || userRole === "moderator" ? (
+            <Link
+              href={`/cases/${detail.case.id}/edit` as Route}
+              className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 whitespace-nowrap"
+            >
+              Edit case
+            </Link>
+          ) : null}
         </div>
       </div>
 
@@ -352,24 +474,6 @@ export function CaseDetailWorkspace({ detail, userRole }: CaseDetailWorkspacePro
                   <div className="mt-2 text-sm font-semibold capitalize text-slate-900">{value}</div>
                 </div>
               ))}
-            </div>
-
-            <div className="rounded-[24px] border border-slate-200 p-5">
-              <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Case progress</div>
-              <div className="mt-4 space-y-3">
-                {detail.progressStages.map((stage) => (
-                  <div
-                    key={stage.key}
-                    className={`rounded-2xl border px-4 py-3 text-sm ${
-                      stage.active
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                        : "border-slate-200 bg-slate-50 text-slate-500"
-                    }`}
-                  >
-                    {stage.label}
-                  </div>
-                ))}
-              </div>
             </div>
 
             <div className="rounded-[24px] border border-slate-200 p-5">
@@ -469,86 +573,76 @@ export function CaseDetailWorkspace({ detail, userRole }: CaseDetailWorkspacePro
                 <div className="mt-3 grid gap-4 md:grid-cols-2">
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Claimant</div>
-                    <div className="mt-2 text-sm font-semibold text-slate-900">{detail.case.claimantName || "—"}</div>
-                    <div className="mt-1 text-sm text-slate-600">{detail.case.claimantEmail || "—"}</div>
-                    <div className="mt-1 text-sm text-slate-600">{detail.case.claimantPhone || "—"}</div>
+                    <div className="mt-2 text-sm font-semibold text-slate-900">{detail.case.claimantName || "-"}</div>
+                    <div className="mt-1 text-sm text-slate-600">{detail.case.claimantEmail || "-"}</div>
+                    <div className="mt-1 text-sm text-slate-600">{detail.case.claimantPhone || "-"}</div>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Respondent</div>
-                    <div className="mt-2 text-sm font-semibold text-slate-900">{detail.case.respondentName || "—"}</div>
-                    <div className="mt-1 text-sm text-slate-600">{detail.case.respondentEmail || "—"}</div>
-                    <div className="mt-1 text-sm text-slate-600">{detail.case.respondentPhone || "—"}</div>
+                    <div className="mt-2 text-sm font-semibold text-slate-900">{detail.case.respondentName || "-"}</div>
+                    <div className="mt-1 text-sm text-slate-600">{detail.case.respondentEmail || "-"}</div>
+                    <div className="mt-1 text-sm text-slate-600">{detail.case.respondentPhone || "-"}</div>
                   </div>
                 </div>
               )}
             </div>
-          </section>
+
+            
+                      </section>
 
           <section className="space-y-6">
             <div className="rounded-[28px] border border-slate-200 bg-white p-6">
-              <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Case actions</div>
+              <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Case Progress</div>
               <div className="mt-4 space-y-3">
-                {detail.role === "claimant" ? (
-                  <button
-                    type="button"
-                    onClick={() => startTransition(() => void post(`/api/cases/${detail.case.id}/notify`))}
-                    className="w-full rounded-2xl bg-ink px-4 py-3 text-left text-sm font-semibold text-white disabled:opacity-60"
-                    disabled={isPending}
+                {todoItems.map((item) => (
+                  <div 
+                    key={item.key} 
+                    className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-700 cursor-pointer hover:bg-slate-100 transition-colors"
+                    onClick={() => toggleTodoItem(item.key)}
                   >
-                    Notify respondent
-                  </button>
-                ) : null}
-                <Link href={`/cases/${detail.case.id}/audit` as Route} className="block rounded-2xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:border-slate-400">
-                  Request audit
-                </Link>
-                <Link href={`/cases/${detail.case.id}/arbitration` as Route} className="block rounded-2xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:border-slate-400">
-                  Request arbitration
-                </Link>
-                <Link href={`/cases/${detail.case.id}/judgement` as Route} className="block rounded-2xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:border-slate-400">
-                  Request judgement
-                </Link>
-                <Link href={`/cases/${detail.case.id}/hearing` as Route} className="block rounded-2xl border border-purple-300 bg-purple-50 px-4 py-3 text-sm font-medium text-purple-700 hover:border-purple-400 hover:bg-purple-100">
-                  🏛️ Virtual hearing room
-                </Link>
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5">
+                        <div className={`h-4 w-4 rounded border-2 flex items-center justify-center ${
+                          item.completed 
+                            ? 'bg-signal border-signal' 
+                            : 'border-slate-300 bg-white'
+                        }`}>
+                          {item.completed && (
+                            <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                      </div>
+                      <div className={`flex-1 ${item.completed ? 'line-through text-slate-500' : ''}`}>
+                        {item.label}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
-            {(detail.role === "moderator" || detail.role === "admin") ? (
-              <div className="rounded-[28px] border border-slate-200 bg-white p-6">
-                <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Hearing</div>
-                <div className="mt-4 space-y-3">
-                  <input
-                    value={arbitrator}
-                    onChange={(event) => setArbitrator(event.target.value)}
-                    placeholder="Arbitrator name"
-                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-800 shadow-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      startTransition(() =>
-                        void post(`/api/cases/${detail.case.id}/hearing`, {
-                          arbitrator,
-                        }),
-                      )
-                    }
-                    className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
-                    disabled={isPending}
-                  >
-                    Schedule hearing
-                  </button>
-                </div>
+            <div className="rounded-[28px] border border-slate-200 bg-white p-6">
+              <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Activity timeline</div>
+              <div className="mt-4 space-y-3 max-h-96 overflow-y-auto">
+                {detail.activities.length === 0 ? (
+                  <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+                    No activity recorded yet.
+                  </div>
+                ) : (
+                  detail.activities.map((activity) => (
+                    <div key={String(activity.id)} className="rounded-2xl bg-slate-50 p-4">
+                      <div className="font-semibold text-slate-900">{String(activity.title || "Activity")}</div>
+                      <div className="mt-1 text-sm text-slate-600">{String(activity.description || activity.type || "")}</div>
+                      <div className="mt-2 text-xs uppercase tracking-[0.15em] text-slate-400">
+                        {formatDateTime(String(activity.createdAt || ""))}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
-            ) : null}
-
-            {selectedLawyer && (detail.role === "claimant" || detail.role === "respondent") ? (
-              <LawyerChatPanel
-                caseId={detail.case.id}
-                canUseChat
-                lawyerName={selectedLawyer.name}
-                initialConversation={detail.conversation}
-              />
-            ) : null}
+            </div>
           </section>
         </div>
       ) : null}
@@ -583,106 +677,201 @@ export function CaseDetailWorkspace({ detail, userRole }: CaseDetailWorkspacePro
 
       {activeTab === "evidence" ? (
         <div id="panel-evidence" role="tabpanel" aria-labelledby="tab-evidence">
-        <CaseWorkspace
-          caseId={detail.case.id}
-          roleLabel={detail.roleLabel}
-          canContribute={detail.role !== "moderator" && detail.role !== "admin"}
-          evidence={detail.evidence}
-          witnesses={detail.witnesses}
-          consultants={detail.consultants}
-          expertiseRequests={detail.expertiseRequests}
-          messages={detail.messages}
-          initialSection="evidence"
-          hideSectionNav
-        />
+          <CaseWorkspace
+            caseId={detail.case.id}
+            roleLabel={detail.roleLabel}
+            canContribute={detail.role !== "moderator" && detail.role !== "admin"}
+            evidence={detail.evidence}
+            witnesses={detail.witnesses}
+            consultants={detail.consultants}
+            expertiseRequests={detail.expertiseRequests}
+            messages={detail.messages}
+            initialSection="evidence"
+            hideSectionNav
+          />
         </div>
       ) : null}
 
       {activeTab === "witnesses" ? (
         <div id="panel-witnesses" role="tabpanel" aria-labelledby="tab-witnesses">
-        <CaseWorkspace
-          caseId={detail.case.id}
-          roleLabel={detail.roleLabel}
-          canContribute={detail.role !== "moderator" && detail.role !== "admin"}
-          evidence={detail.evidence}
-          witnesses={detail.witnesses}
-          consultants={detail.consultants}
-          expertiseRequests={detail.expertiseRequests}
-          messages={detail.messages}
-          initialSection="witnesses"
-          hideSectionNav
-        />
+          <CaseWorkspace
+            caseId={detail.case.id}
+            roleLabel={detail.roleLabel}
+            canContribute={detail.role !== "moderator" && detail.role !== "admin"}
+            evidence={detail.evidence}
+            witnesses={detail.witnesses}
+            consultants={detail.consultants}
+            expertiseRequests={detail.expertiseRequests}
+            messages={detail.messages}
+            initialSection="witnesses"
+            hideSectionNav
+          />
         </div>
       ) : null}
 
       {activeTab === "consultants" ? (
         <div id="panel-consultants" role="tabpanel" aria-labelledby="tab-consultants">
-        <CaseWorkspace
-          caseId={detail.case.id}
-          roleLabel={detail.roleLabel}
-          canContribute={detail.role !== "moderator" && detail.role !== "admin"}
-          evidence={detail.evidence}
-          witnesses={detail.witnesses}
-          consultants={detail.consultants}
-          expertiseRequests={detail.expertiseRequests}
-          messages={detail.messages}
-          initialSection="consultants"
-          hideSectionNav
-        />
+          <CaseWorkspace
+            caseId={detail.case.id}
+            roleLabel={detail.roleLabel}
+            canContribute={detail.role !== "moderator" && detail.role !== "admin"}
+            evidence={detail.evidence}
+            witnesses={detail.witnesses}
+            consultants={detail.consultants}
+            expertiseRequests={detail.expertiseRequests}
+            messages={detail.messages}
+            initialSection="consultants"
+            hideSectionNav
+          />
         </div>
       ) : null}
 
       {activeTab === "expertise" ? (
         <div id="panel-expertise" role="tabpanel" aria-labelledby="tab-expertise">
-        <CaseWorkspace
-          caseId={detail.case.id}
-          roleLabel={detail.roleLabel}
-          canContribute={detail.role !== "moderator" && detail.role !== "admin"}
-          evidence={detail.evidence}
-          witnesses={detail.witnesses}
-          consultants={detail.consultants}
-          expertiseRequests={detail.expertiseRequests}
-          messages={detail.messages}
-          initialSection="expertise"
-          hideSectionNav
-        />
+          <CaseWorkspace
+            caseId={detail.case.id}
+            roleLabel={detail.roleLabel}
+            canContribute={detail.role !== "moderator" && detail.role !== "admin"}
+            evidence={detail.evidence}
+            witnesses={detail.witnesses}
+            consultants={detail.consultants}
+            expertiseRequests={detail.expertiseRequests}
+            messages={detail.messages}
+            initialSection="expertise"
+            hideSectionNav
+          />
         </div>
       ) : null}
 
-      {activeTab === "todo" ? (
-        <section id="panel-todo" role="tabpanel" aria-labelledby="tab-todo" className="rounded-[28px] border border-slate-200 bg-white p-6">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-400">To-do</div>
-          <div className="mt-4 space-y-3">
-            {detail.todoItems.length === 0 ? (
-              <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-                No outstanding actions detected.
-              </div>
-            ) : (
-              detail.todoItems.map((item) => (
-                <div key={item.key} className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
-                  {item.label}
-                </div>
-              ))
-            )}
-          </div>
-        </section>
+      {activeTab === "audit" ? (
+        <div id="panel-audit" role="tabpanel" aria-labelledby="tab-audit" className="rounded-[28px] border border-slate-200 bg-white p-6">
+          <AuditPanel caseId={detail.case.id} audits={detail.audits || []} />
+        </div>
       ) : null}
 
-      {activeTab === "activity" ? (
-        <section id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" className="rounded-[28px] border border-slate-200 bg-white p-6">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Activity timeline</div>
-          <div className="mt-4 space-y-3">
-            {detail.activities.map((activity) => (
-              <div key={String(activity.id)} className="rounded-2xl bg-slate-50 p-4">
-                <div className="font-semibold text-slate-900">{String(activity.title || "Activity")}</div>
-                <div className="mt-1 text-sm text-slate-600">{String(activity.description || activity.type || "")}</div>
-                <div className="mt-2 text-xs uppercase tracking-[0.15em] text-slate-400">
-                  {formatDateTime(String(activity.createdAt || ""))}
+      {activeTab === "arbitration" ? (
+        <div id="panel-arbitration" role="tabpanel" aria-labelledby="tab-arbitration" className="rounded-[28px] border border-slate-200 bg-white p-6">
+          <ArbitrationPanel
+            caseId={detail.case.id}
+            status={detail.case.status}
+            proposal={(detail.case as any).arbitrationProposalJson}
+            finalDecision={detail.case.finalDecision}
+          />
+        </div>
+      ) : null}
+
+      {activeTab === "hearing" ? (
+        <div id="panel-hearing" role="tabpanel" aria-labelledby="tab-hearing" className="space-y-6">
+          {/* Hearing Room Placeholder */}
+          <div className="rounded-lg border border-slate-200 bg-white p-8">
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="text-center">
+                <h2 className="text-2xl font-semibold text-ink">Court Hearing Room</h2>
+                <p className="mt-2 text-slate-600">Case: {detail.case.title}</p>
+                <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-amber-100 px-4 py-2 text-sm font-medium text-amber-800">
+                  <div className="h-2 w-2 rounded-full bg-amber-600 animate-pulse"></div>
+                  Session Not Started
                 </div>
               </div>
-            ))}
+
+              {/* Participants Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
+                {/* Judge */}
+                <div className="rounded-lg border-2 border-slate-300 bg-slate-50 p-4 text-center">
+                  <div className="mx-auto mb-3 h-16 w-16 rounded-full bg-slate-200 flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="h-8 w-8 text-slate-500">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z" />
+                    </svg>
+                  </div>
+                  <h3 className="font-medium text-ink">Judge</h3>
+                  <p className="text-sm text-slate-500 mt-1">Awaiting</p>
+                </div>
+
+                {/* Claimant */}
+                <div className="rounded-lg border-2 border-slate-300 bg-slate-50 p-4 text-center">
+                  <div className="mx-auto mb-3 h-16 w-16 rounded-full bg-blue-200 flex items-center justify-center">
+                    <svg className="h-8 w-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <h3 className="font-medium text-ink">Claimant</h3>
+                  <p className="text-sm text-slate-500 mt-1">{detail.case.claimantName}</p>
+                </div>
+
+                {/* Defendant */}
+                <div className="rounded-lg border-2 border-slate-300 bg-slate-50 p-4 text-center">
+                  <div className="mx-auto mb-3 h-16 w-16 rounded-full bg-red-200 flex items-center justify-center">
+                    <svg className="h-8 w-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <h3 className="font-medium text-ink">Defendant</h3>
+                  <p className="text-sm text-slate-500 mt-1">{detail.case.respondentName}</p>
+                </div>
+
+                {/* Lawyers */}
+                <div className="rounded-lg border-2 border-slate-300 bg-slate-50 p-4 text-center">
+                  <div className="mx-auto mb-3 h-16 w-16 rounded-full bg-green-200 flex items-center justify-center">
+                    <svg className="h-8 w-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <h3 className="font-medium text-ink">Legal Counsel</h3>
+                  <p className="text-sm text-slate-500 mt-1">Both Parties</p>
+                </div>
+              </div>
+            </div>
           </div>
-        </section>
+
+          {/* Existing Hearings */}
+          <div className="rounded-[28px] border border-slate-200 bg-white p-6">
+            <ExistingHearings caseId={detail.case.id} caseTitle={detail.case.title} />
+          </div>
+
+          {/* Hearing Scheduler */}
+          <div className="rounded-[28px] border border-slate-200 bg-white p-6">
+            <HearingScheduler caseId={detail.case.id} caseTitle={detail.case.title} />
+          </div>
+
+          {/* AI Testing Interface */}
+          <div className="rounded-[28px] border border-slate-200 bg-white p-6">
+            <AITestingInterface caseId={detail.case.id} caseTitle={detail.case.title} />
+          </div>
+
+          {/* Voice Test Panel */}
+          <div className="rounded-[28px] border border-slate-200 bg-white p-6">
+            <VoiceTestPanel caseId={detail.case.id} caseTitle={detail.case.title} />
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === "judgement" ? (
+        <div id="panel-judgement" role="tabpanel" aria-labelledby="tab-judgement" className="rounded-[28px] border border-slate-200 bg-white p-6">
+          <JudgementPanel
+            caseId={detail.case.id}
+            canModerate={userRole === "moderator" || userRole === "admin"}
+            judgement={(detail.case as any).judgementJson}
+            finalDecision={detail.case.finalDecision}
+          />
+        </div>
+      ) : null}
+
+      {activeTab === "lawyer-chat" ? (
+        <div id="panel-lawyer-chat" role="tabpanel" aria-labelledby="tab-lawyer-chat" className="rounded-[28px] border border-slate-200 bg-white p-6">
+          {selectedLawyer && (detail.role === "claimant" || detail.role === "respondent") ? (
+            <LawyerChatPanel
+              caseId={detail.case.id}
+              canUseChat
+              lawyerName={selectedLawyer.name}
+              initialConversation={detail.conversation}
+            />
+          ) : (
+            <div className="text-center text-sm text-slate-600">
+              {selectedLawyer ? "Lawyer chat not available for your role" : "Select a lawyer to enable chat"}
+            </div>
+          )}
+        </div>
       ) : null}
     </div>
   );

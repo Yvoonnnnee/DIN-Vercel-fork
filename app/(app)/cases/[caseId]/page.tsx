@@ -1,6 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { ensureAppUser } from "@/server/auth/provision";
 import { getCaseDetail } from "@/server/cases/queries";
+import { getDb } from "@/db/client";
+import { cases, hearings, lawyerConversations } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { CaseDetailWorkspace } from "@/components/case-detail-workspace";
 
 type CaseDetailPageProps = {
@@ -10,7 +13,45 @@ type CaseDetailPageProps = {
 export default async function CaseDetailPage({ params }: CaseDetailPageProps) {
   const { caseId } = await params;
   const appUser = await ensureAppUser();
-  const detail = await getCaseDetail(appUser, caseId);
+  
+  // First check if user is admin/moderator for fallback access
+  const isAdminOrModerator = appUser?.role === "admin" || appUser?.role === "moderator";
+  
+  let detail = await getCaseDetail(appUser, caseId);
+  
+  if (!detail && isAdminOrModerator) {
+    // Admin/moderator fallback: get basic case info directly
+    const db = getDb();
+    const caseRows = await db.select().from(cases).where(eq(cases.id, caseId)).limit(1);
+    const hearingRows = await db.select().from(hearings).where(eq(hearings.caseId, caseId));
+    const caseItem = caseRows[0];
+    
+    if (!caseItem) {
+      notFound();
+    }
+    
+    // Get actual conversation data for admin access
+    const conversationRows = await db.select().from(lawyerConversations).where(eq(lawyerConversations.caseId, caseId));
+    
+    // Create minimal detail object for admin access
+    detail = {
+      case: caseItem,
+      role: appUser.role as 'admin' | 'moderator',
+      roleLabel: appUser.role === 'admin' ? 'Admin' : 'Moderator',
+      evidence: [],
+      witnesses: [],
+      consultants: [],
+      activities: [],
+      expertiseRequests: [],
+      messages: [],
+      conversation: conversationRows[0] ?? null,
+      hearings: hearingRows,
+      audits: [],
+      todoItems: [],
+      progressStages: [],
+      summaryCards: [],
+    };
+  }
 
   if (!detail) {
     notFound();
@@ -20,5 +61,5 @@ export default async function CaseDetailPage({ params }: CaseDetailPageProps) {
     redirect(`/cases/${caseId}/select-lawyer`);
   }
 
-  return <CaseDetailWorkspace detail={detail} userRole={appUser?.role} />;
+  return <CaseDetailWorkspace detail={detail} userRole={appUser?.role} user={appUser} />;
 }
