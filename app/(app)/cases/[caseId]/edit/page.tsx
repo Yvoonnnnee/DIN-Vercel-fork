@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { ensureAppUser } from "@/server/auth/provision";
 import { getCaseDetail } from "@/server/cases/queries";
 import { getDb } from "@/db/client";
-import { cases } from "@/db/schema";
+import { cases, lawyerConversations } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { CaseEditor } from "@/components/case-editor";
 
@@ -29,6 +29,9 @@ export default async function EditCasePage({ params }: EditCasePageProps) {
       notFound();
     }
     
+    // Get actual conversation data for admin access
+    const conversationRows = await db.select().from(lawyerConversations).where(eq(lawyerConversations.caseId, caseId));
+        
     // Create minimal detail object for admin access
     detail = {
       case: caseItem,
