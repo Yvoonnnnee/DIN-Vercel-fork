@@ -25,6 +25,7 @@ import {
 } from "@/contracts/cases";
 import { spendForAction } from "@/server/billing/service";
 import { assertAppUserActive } from "@/server/auth/provision";
+import { isUserKycVerified } from "@/server/identity/service";
 import { sendRespondentNotifyEmail } from "@/server/email/respondent-notify";
 import { randomUUID } from "crypto";
 
@@ -98,6 +99,15 @@ export async function createCase(user: AppUser, payload: unknown) {
   assertAppUserActive(user);
 
   const parsed = caseMutationSchema.parse(payload);
+
+  // KYC gate: block filing if not verified (drafts are OK)
+  if (parsed.saveMode === "file" && user.id) {
+    const verified = await isUserKycVerified(user.id);
+    if (!verified) {
+      throw new Error("KYC_REQUIRED");
+    }
+  }
+
   const db = getDb();
 
   const inserted = await db
@@ -143,6 +153,15 @@ export async function updateCase(user: AppUser, caseId: string, payload: unknown
   }
 
   const parsed = caseMutationSchema.parse(payload);
+
+  // KYC gate: block filing if not verified (updates to draft are OK)
+  if (parsed.saveMode === "file" && user?.id) {
+    const verified = await isUserKycVerified(user.id);
+    if (!verified) {
+      throw new Error("KYC_REQUIRED");
+    }
+  }
+
   const db = getDb();
   const status = parsed.saveMode === "file" ? "filed" : authorized.case.status;
 

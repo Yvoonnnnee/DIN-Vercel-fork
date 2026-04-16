@@ -1,7 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { users } from "@/db/schema";
+import { kycVerifications, users } from "@/db/schema";
 import { isDatabaseConfigured } from "@/server/runtime";
 
 export type ProvisionedAppUser = {
@@ -11,6 +11,7 @@ export type ProvisionedAppUser = {
   fullName: string | null;
   role: "user" | "moderator" | "admin";
   accountStatus: "active" | "suspended";
+  kycVerified: boolean;
 };
 
 export function assertAppUserActive(user: ProvisionedAppUser | null): asserts user is ProvisionedAppUser {
@@ -53,11 +54,22 @@ export async function ensureAppUser() {
       fullName: [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || null,
       role: "user" as const,
       accountStatus: "active" as const,
+      kycVerified: false,
     };
   }
 
   const fullName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || null;
   const db = getDb();
+
+  async function resolveKycVerified(appUser: typeof users.$inferSelect): Promise<boolean> {
+    if (!appUser.kycVerificationId) return false;
+    const kycRow = await db
+      .select({ status: kycVerifications.status })
+      .from(kycVerifications)
+      .where(eq(kycVerifications.id, appUser.kycVerificationId))
+      .limit(1);
+    return kycRow[0]?.status === "verified";
+  }
 
   const existing = await db.select().from(users).where(eq(users.clerkUserId, userId)).limit(1);
   if (existing[0]) {
@@ -74,10 +86,11 @@ export async function ensureAppUser() {
         .where(and(eq(users.id, appUser.id), eq(users.clerkUserId, userId)))
         .returning();
 
-      return updated[0] ?? appUser;
+      const result = updated[0] ?? appUser;
+      return { ...result, kycVerified: await resolveKycVerified(result) };
     }
 
-    return appUser;
+    return { ...appUser, kycVerified: await resolveKycVerified(appUser) };
   }
 
   const existingByEmail = await db.select().from(users).where(eq(users.email, email)).limit(1);
@@ -92,7 +105,8 @@ export async function ensureAppUser() {
       .where(eq(users.id, appUser.id))
       .returning();
 
-    return updated[0] ?? appUser;
+    const result = updated[0] ?? appUser;
+    return { ...result, kycVerified: await resolveKycVerified(result) };
   }
 
   const inserted = await db
@@ -106,5 +120,6 @@ export async function ensureAppUser() {
     })
     .returning();
 
-  return inserted[0] ?? null;
+  const newUser = inserted[0];
+  return newUser ? { ...newUser, kycVerified: false } : null;
 }

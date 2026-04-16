@@ -14,6 +14,7 @@ type Claim = {
 
 type CaseEditorProps = {
   mode: "create" | "edit";
+  kycVerified?: boolean;
   initialCase?: {
     id: string;
     description: string | null;
@@ -58,7 +59,7 @@ function asClaims(input: Record<string, unknown>[] | null | undefined): Claim[] 
   }));
 }
 
-export function CaseEditor({ mode, initialCase }: CaseEditorProps) {
+export function CaseEditor({ mode, initialCase, kycVerified = false }: CaseEditorProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -136,6 +137,11 @@ export function CaseEditor({ mode, initialCase }: CaseEditorProps) {
 
       const result = await response.json();
       if (!response.ok) {
+        if (result.error?.code === "KYC_REQUIRED") {
+          const returnTo = mode === "create" ? "/cases/new" : `/cases/${initialCase?.id}/edit`;
+          router.push(`/verify/start?returnTo=${encodeURIComponent(returnTo)}` as Route);
+          return;
+        }
         setError(result.error?.message || "Failed to save case.");
         return;
       }
@@ -361,14 +367,24 @@ export function CaseEditor({ mode, initialCase }: CaseEditorProps) {
         >
           Save draft
         </button>
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={() => submit("file")}
-          className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:opacity-60"
-        >
-          {mode === "create" ? "Create and file case" : "Save and file"}
-        </button>
+        {kycVerified ? (
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => submit("file")}
+            className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:opacity-60"
+          >
+            {mode === "create" ? "Create and file case" : "Save and file"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => router.push(`/verify/start?returnTo=${encodeURIComponent(mode === "create" ? "/cases/new" : `/cases/${initialCase?.id}/edit`)}` as Route)}
+            className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-slate-800"
+          >
+            Verify identity to file
+          </button>
+        )}
       </div>
     </div>
   );

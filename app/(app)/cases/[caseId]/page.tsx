@@ -57,6 +57,11 @@ export default async function CaseDetailPage({ params }: CaseDetailPageProps) {
     notFound();
   }
 
+  // KYC gate: respondent must verify identity before accessing case
+  if (detail.role === "respondent" && !appUser?.kycVerified) {
+    redirect(`/verify/start?returnTo=/cases/${caseId}` as never);
+  }
+
   if (detail.role === "respondent" && !detail.case.respondentLawyerKey) {
     redirect(`/cases/${caseId}/select-lawyer`);
   }
