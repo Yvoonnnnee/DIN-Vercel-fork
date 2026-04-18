@@ -299,7 +299,7 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     return null;
   }
 
-  const [activityRows, evidenceRows, witnessRows, consultantRows, expertiseRows, messageRows, conversations, auditRows] = await Promise.all([
+  const [activityRows, evidenceRows, witnessRows, consultantRows, expertiseRows, messageRows, conversations, auditRows, claimantKycRows, respondentKycRows] = await Promise.all([
     db
       .select()
       .from(caseActivities)
@@ -307,8 +307,8 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
       .orderBy(desc(caseActivities.createdAt))
       .limit(8),
     db.select().from(evidence).where(eq(evidence.caseId, caseId)).orderBy(desc(evidence.createdAt)),
-    db.select({ witness: witnesses, kycStatus: kycVerifications.status }).from(witnesses).leftJoin(kycVerifications, eq(witnesses.kycVerificationId, kycVerifications.id)).where(eq(witnesses.caseId, caseId)).orderBy(desc(witnesses.createdAt)),
-    db.select({ consultant: consultants, kycStatus: kycVerifications.status }).from(consultants).leftJoin(kycVerifications, eq(consultants.kycVerificationId, kycVerifications.id)).where(eq(consultants.caseId, caseId)).orderBy(desc(consultants.createdAt)),
+    db.select({ witness: witnesses, kycStatus: kycVerifications.status, kycVerifiedAt: kycVerifications.verifiedAt }).from(witnesses).leftJoin(kycVerifications, eq(witnesses.kycVerificationId, kycVerifications.id)).where(eq(witnesses.caseId, caseId)).orderBy(desc(witnesses.createdAt)),
+    db.select({ consultant: consultants, kycStatus: kycVerifications.status, kycVerifiedAt: kycVerifications.verifiedAt }).from(consultants).leftJoin(kycVerifications, eq(consultants.kycVerificationId, kycVerifications.id)).where(eq(consultants.caseId, caseId)).orderBy(desc(consultants.createdAt)),
     db.select().from(expertiseRequests).where(eq(expertiseRequests.caseId, caseId)).orderBy(desc(expertiseRequests.createdAt)),
     db.select().from(caseMessages).where(eq(caseMessages.caseId, caseId)).orderBy(desc(caseMessages.createdAt)).limit(20),
     user.email
@@ -325,6 +325,12 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
           .limit(1)
       : Promise.resolve([]),
     db.select().from(caseAudits).where(eq(caseAudits.caseId, caseId)).orderBy(desc(caseAudits.createdAt)),
+    caseItem.claimantKycVerificationId
+      ? db.select().from(kycVerifications).where(eq(kycVerifications.id, caseItem.claimantKycVerificationId)).limit(1)
+      : Promise.resolve([]),
+    caseItem.respondentKycVerificationId
+      ? db.select().from(kycVerifications).where(eq(kycVerifications.id, caseItem.respondentKycVerificationId)).limit(1)
+      : Promise.resolve([]),
   ]);
 
   // Check if case has any hearings
@@ -363,8 +369,8 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
   ];
 
   // Flatten joined witness/consultant results to include kycStatus
-  const flatWitnesses = witnessRows.map((row) => ({ ...row.witness, kycStatus: row.kycStatus }));
-  const flatConsultants = consultantRows.map((row) => ({ ...row.consultant, kycStatus: row.kycStatus }));
+  const flatWitnesses = witnessRows.map((row) => ({ ...row.witness, kycStatus: row.kycStatus, kycVerifiedAt: row.kycVerifiedAt }));
+  const flatConsultants = consultantRows.map((row) => ({ ...row.consultant, kycStatus: row.kycStatus, kycVerifiedAt: row.kycVerifiedAt }));
 
   return {
     case: caseItem,
@@ -379,6 +385,8 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     conversation: conversations[0] ?? null,
     audits: auditRows,
     hearings: hearingRows,
+    claimantKyc: (claimantKycRows[0] ?? null) as typeof kycVerifications.$inferSelect | null,
+    respondentKyc: (respondentKycRows[0] ?? null) as typeof kycVerifications.$inferSelect | null,
     todoItems,
     progressStages,
     summaryCards: [

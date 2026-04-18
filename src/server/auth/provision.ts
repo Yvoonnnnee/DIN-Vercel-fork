@@ -118,8 +118,17 @@ export async function ensureAppUser() {
       role: "user",
       accountStatus: "active",
     })
+    .onConflictDoUpdate({
+      target: users.clerkUserId,
+      set: { email, fullName },
+    })
     .returning();
 
   const newUser = inserted[0];
-  return newUser ? { ...newUser, kycVerified: false } : null;
+  if (newUser) {
+    return { ...newUser, kycVerified: await resolveKycVerified(newUser) };
+  }
+
+  const raceWinner = await db.select().from(users).where(eq(users.clerkUserId, userId)).limit(1);
+  return raceWinner[0] ? { ...raceWinner[0], kycVerified: await resolveKycVerified(raceWinner[0]) } : null;
 }

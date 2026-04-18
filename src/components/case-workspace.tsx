@@ -17,6 +17,7 @@ type RecordSummary = {
   id: string;
   title?: string | null;
   fullName?: string | null;
+  originalFullName?: string | null;
   createdAt: string | Date;
   description?: string | null;
   type?: string | null;
@@ -264,6 +265,9 @@ export function CaseWorkspace(props: CaseWorkspaceProps) {
                   </span>
                   {showVerification ? getVerificationBadge(record) : null}
                 </div>
+                {showVerification && record.originalFullName && record.fullName && record.originalFullName !== record.fullName ? (
+                  <div className="text-xs text-slate-500">Filed as: {record.originalFullName}</div>
+                ) : null}
                 <div className="text-sm text-slate-600">
                   {record.description || record.content || record.type || record.status || "No details"}
                 </div>

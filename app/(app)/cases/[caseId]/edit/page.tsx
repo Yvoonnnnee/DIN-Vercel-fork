@@ -5,6 +5,7 @@ import { getDb } from "@/db/client";
 import { cases, lawyerConversations } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { CaseEditor } from "@/components/case-editor";
+import { getVerificationStatus } from "@/server/identity/service";
 
 type EditCasePageProps = {
   params: Promise<{ caseId: string }>;
@@ -46,6 +47,8 @@ export default async function EditCasePage({ params }: EditCasePageProps) {
       conversation: conversationRows[0] ?? null,
       hearings: [],
       audits: [],
+      claimantKyc: null,
+      respondentKyc: null,
       todoItems: [],
       progressStages: [],
       summaryCards: [],
@@ -56,5 +59,23 @@ export default async function EditCasePage({ params }: EditCasePageProps) {
     notFound();
   }
 
-  return <CaseEditor mode="edit" initialCase={detail.case} />;
+  let claimantPrefill: { name: string; locked: boolean } | null = null;
+  if (appUser?.id && appUser.kycVerified) {
+    const status = await getVerificationStatus(appUser.id);
+    if ("verifiedFirstName" in status) {
+      const name = `${status.verifiedFirstName ?? ""} ${status.verifiedLastName ?? ""}`.trim();
+      if (name) {
+        claimantPrefill = { name, locked: true };
+      }
+    }
+  }
+
+  return (
+    <CaseEditor
+      mode="edit"
+      initialCase={detail.case}
+      kycVerified={appUser?.kycVerified ?? false}
+      claimantPrefill={claimantPrefill}
+    />
+  );
 }

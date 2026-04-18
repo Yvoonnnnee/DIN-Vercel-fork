@@ -11,7 +11,13 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create case";
     if (message === "KYC_REQUIRED") {
-      return fail("KYC_REQUIRED", "Identity verification required before filing", 403);
+      const draftCaseId = (error as Error & { draftCaseId?: string }).draftCaseId;
+      return fail(
+        "KYC_REQUIRED",
+        "Identity verification required before filing",
+        403,
+        draftCaseId ? { draftCaseId } : undefined,
+      );
     }
     return fail("CASE_CREATE_FAILED", message, message === "Unauthorized" ? 401 : 400);
   }

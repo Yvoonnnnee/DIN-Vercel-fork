@@ -1,11 +1,12 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 import { getDb } from "@/db/client";
-import { kycVerifications, processedStripeEvents, users, witnesses, consultants } from "@/db/schema";
+import { caseActivities, cases, kycVerifications, processedStripeEvents, users, witnesses, consultants } from "@/db/schema";
 import type { ProvisionedAppUser } from "@/server/auth/provision";
 import { assertAppUserActive } from "@/server/auth/provision";
 import { env } from "@/lib/env";
 import { getStripe } from "@/server/billing/stripe";
+import { sendRespondentLinkedEmail } from "@/server/email/respondent-linked-notify";
 
 type AppUser = ProvisionedAppUser | null;
 
@@ -288,6 +289,145 @@ export async function getConsultantVerificationStatus(token: string) {
   return { status: rows[0].kycStatus || ("not_started" as const) };
 }
 
+async function autoLinkRespondentOnKycVerified(
+  userId: string,
+  kycVerificationId: string,
+  verifiedName: string | null,
+) {
+  const db = getDb();
+
+  const userRows = await db.select({ email: users.email }).from(users).where(eq(users.id, userId)).limit(1);
+  const userEmail = userRows[0]?.email?.toLowerCase();
+  if (!userEmail) return;
+
+  const candidates = await db
+    .select()
+    .from(cases)
+    .where(
+      and(
+        isNull(cases.respondentUserId),
+        sql`lower(${cases.respondentEmailAlleged}) = ${userEmail}`,
+      ),
+    );
+
+  for (const caseRow of candidates) {
+    const allegedSnapshot = caseRow.respondentNameAlleged ?? caseRow.respondentName;
+    await db
+      .update(cases)
+      .set({
+        respondentUserId: userId,
+        respondentKycVerificationId: kycVerificationId,
+        respondentNameVerified: verifiedName,
+        respondentNameAlleged: allegedSnapshot,
+        respondentName: verifiedName ?? caseRow.respondentName,
+        respondentLinkedAt: new Date(),
+      })
+      .where(eq(cases.id, caseRow.id));
+
+    await db.insert(caseActivities).values({
+      caseId: caseRow.id,
+      type: "respondent_linked",
+      title: "Respondent linked",
+      description: verifiedName
+        ? `Respondent linked to verified user ${verifiedName}.`
+        : "Respondent linked to a verified user.",
+      performedBy: "system",
+    });
+
+    if (caseRow.claimantEmail) {
+      try {
+        await sendRespondentLinkedEmail(caseRow.claimantEmail, {
+          id: caseRow.id,
+          title: caseRow.title,
+          caseNumber: caseRow.caseNumber,
+          respondentAllegedName: caseRow.respondentNameAlleged ?? caseRow.respondentName,
+          respondentVerifiedName: verifiedName,
+        });
+      } catch (err) {
+        console.error("sendRespondentLinkedEmail (webhook) failed", err);
+      }
+    }
+  }
+}
+
+export async function linkRespondentIfMatching(
+  caseId: string,
+  appUserId: string,
+): Promise<{ linked: boolean }> {
+  const db = getDb();
+
+  const caseRows = await db.select().from(cases).where(eq(cases.id, caseId)).limit(1);
+  const caseRow = caseRows[0];
+  if (!caseRow) return { linked: false };
+  if (caseRow.respondentUserId) return { linked: false };
+
+  const alleged = caseRow.respondentEmailAlleged ?? caseRow.respondentEmail;
+  if (!alleged) return { linked: false };
+
+  const userRows = await db
+    .select({ id: users.id, email: users.email, kycId: users.kycVerificationId })
+    .from(users)
+    .where(eq(users.id, appUserId))
+    .limit(1);
+  const user = userRows[0];
+  if (!user) return { linked: false };
+  if ((user.email ?? "").toLowerCase() !== alleged.toLowerCase()) return { linked: false };
+  if (!user.kycId) return { linked: false };
+
+  const kycRows = await db
+    .select({
+      status: kycVerifications.status,
+      firstName: kycVerifications.verifiedFirstName,
+      lastName: kycVerifications.verifiedLastName,
+    })
+    .from(kycVerifications)
+    .where(eq(kycVerifications.id, user.kycId))
+    .limit(1);
+  const kyc = kycRows[0];
+  if (!kyc || kyc.status !== "verified") return { linked: false };
+
+  const verifiedName = `${kyc.firstName ?? ""} ${kyc.lastName ?? ""}`.trim() || null;
+  const allegedSnapshot = caseRow.respondentNameAlleged ?? caseRow.respondentName;
+
+  await db
+    .update(cases)
+    .set({
+      respondentUserId: user.id,
+      respondentKycVerificationId: user.kycId,
+      respondentNameVerified: verifiedName,
+      respondentNameAlleged: allegedSnapshot,
+      respondentName: verifiedName ?? caseRow.respondentName,
+      respondentLinkedAt: new Date(),
+    })
+    .where(eq(cases.id, caseId));
+
+  await db.insert(caseActivities).values({
+    caseId,
+    type: "respondent_linked",
+    title: "Respondent linked",
+    description: verifiedName
+      ? `Respondent linked to verified user ${verifiedName}.`
+      : "Respondent linked to a verified user.",
+    performedBy: "system",
+  });
+
+  if (caseRow.claimantEmail) {
+    try {
+      await sendRespondentLinkedEmail(caseRow.claimantEmail, {
+        id: caseRow.id,
+        title: caseRow.title,
+        caseNumber: caseRow.caseNumber,
+        respondentAllegedName: caseRow.respondentNameAlleged ?? caseRow.respondentName,
+        respondentVerifiedName: verifiedName,
+      });
+    } catch (err) {
+      console.error("sendRespondentLinkedEmail failed", err);
+    }
+  }
+
+  return { linked: true };
+}
+
 export async function processIdentityWebhookEvent(event: Stripe.Event) {
   const db = getDb();
 
@@ -351,17 +491,77 @@ export async function processIdentityWebhookEvent(event: Stripe.Event) {
       })
       .where(eq(kycVerifications.id, kycRow.id));
 
-    // Auto-accept witness/consultant on successful verification
+    // Identity resolution: overwrite witness/consultant names with the verified
+    // identity, preserve the originally-alleged name, and try to auto-link any
+    // case where this verified user is the respondent.
+    const verifiedName = `${outputs?.first_name ?? ""} ${outputs?.last_name ?? ""}`.trim();
+
     const entityType = session.metadata?.entity_type;
     if (entityType === "witness") {
       const witnessId = session.metadata?.witness_id;
       if (witnessId) {
-        await db.update(witnesses).set({ status: "accepted" }).where(eq(witnesses.id, witnessId));
+        const [current] = await db.select().from(witnesses).where(eq(witnesses.id, witnessId)).limit(1);
+        if (current) {
+          if (verifiedName && current.fullName !== verifiedName) {
+            await db
+              .update(witnesses)
+              .set({
+                fullName: verifiedName,
+                originalFullName: current.originalFullName ?? current.fullName,
+                nameUpdatedAt: new Date(),
+                status: "accepted",
+              })
+              .where(eq(witnesses.id, witnessId));
+
+            await db.insert(caseActivities).values({
+              caseId: current.caseId,
+              type: "identity_verified",
+              title: "Witness identity verified",
+              description: `Witness "${current.fullName}" verified as "${verifiedName}".`,
+              performedBy: "system",
+            });
+          } else {
+            await db.update(witnesses).set({ status: "accepted" }).where(eq(witnesses.id, witnessId));
+          }
+        }
       }
     } else if (entityType === "consultant") {
       const consultantId = session.metadata?.consultant_id;
       if (consultantId) {
-        await db.update(consultants).set({ status: "accepted" }).where(eq(consultants.id, consultantId));
+        const [current] = await db.select().from(consultants).where(eq(consultants.id, consultantId)).limit(1);
+        if (current) {
+          if (verifiedName && current.fullName !== verifiedName) {
+            await db
+              .update(consultants)
+              .set({
+                fullName: verifiedName,
+                originalFullName: current.originalFullName ?? current.fullName,
+                nameUpdatedAt: new Date(),
+                status: "accepted",
+              })
+              .where(eq(consultants.id, consultantId));
+
+            await db.insert(caseActivities).values({
+              caseId: current.caseId,
+              type: "identity_verified",
+              title: "Consultant identity verified",
+              description: `Consultant "${current.fullName}" verified as "${verifiedName}".`,
+              performedBy: "system",
+            });
+          } else {
+            await db.update(consultants).set({ status: "accepted" }).where(eq(consultants.id, consultantId));
+          }
+        }
+      }
+    } else {
+      // Regular user KYC — try to auto-link any case where this user is the respondent.
+      const userId = session.metadata?.user_id;
+      if (userId) {
+        try {
+          await autoLinkRespondentOnKycVerified(userId, kycRow.id, verifiedName || null);
+        } catch (err) {
+          console.error("autoLinkRespondentOnKycVerified failed", err);
+        }
       }
     }
   } else if (event.type === "identity.verification_session.requires_input") {

@@ -63,6 +63,8 @@ export const activityTypeEnum = pgEnum("activity_type", [
   "decision",
   "note",
   "document_request",
+  "identity_verified",
+  "respondent_linked",
   "other",
 ]);
 export const tokenLedgerStatusEnum = pgEnum("token_ledger_status", ["pending", "committed", "reversed"]);

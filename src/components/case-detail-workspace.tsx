@@ -15,6 +15,7 @@ import { VoiceTestPanel } from "@/components/voice-test-panel";
 import { JudgementPanel } from "@/components/judgement-panel";
 import { getLawyerById } from "@/lib/lawyers";
 import { formatCurrency, formatDateTime } from "@/server/format";
+import { resolveCaseClaimant, resolveCaseRespondent, type KycStatus } from "@/server/identity/resolve";
 
 type Claim = {
   claim: string;
@@ -53,9 +54,14 @@ type CaseDetailWorkspaceProps = {
       claimantName: string | null;
       claimantEmail: string | null;
       claimantPhone: string | null;
+      claimantNameVerified?: string | null;
+      claimantKycVerificationId?: string | null;
       respondentName: string | null;
       respondentEmail: string | null;
       respondentPhone: string | null;
+      respondentNameAlleged?: string | null;
+      respondentNameVerified?: string | null;
+      respondentKycVerificationId?: string | null;
       claimantClaims: Record<string, unknown>[] | null;
       respondentClaims: Record<string, unknown>[] | null;
       claimantLawyerKey: string | null;
@@ -80,6 +86,18 @@ type CaseDetailWorkspaceProps = {
     } | null;
     todoItems: Array<{ key: string; label: string }>;
     progressStages: Array<{ key: string; label: string; active: boolean }>;
+    claimantKyc?: {
+      status: KycStatus | null;
+      verifiedAt: Date | string | null;
+      verifiedFirstName?: string | null;
+      verifiedLastName?: string | null;
+    } | null;
+    respondentKyc?: {
+      status: KycStatus | null;
+      verifiedAt: Date | string | null;
+      verifiedFirstName?: string | null;
+      verifiedLastName?: string | null;
+    } | null;
   };
   userRole?: string;
   user?: any;
@@ -177,9 +195,31 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
     expertise: detail.expertiseRequests.length
   };
 
+  const [notifyPending, setNotifyPending] = useState(false);
+
+  async function handleNotifyRespondent() {
+    if (notifyPending) return;
+    setNotifyPending(true);
+    try {
+      const res = await fetch(`/api/cases/${detail.case.id}/notify`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: { message: "Failed to notify respondent" } }));
+        alert(body?.error?.message ?? "Failed to notify respondent");
+        return;
+      }
+      router.refresh();
+    } finally {
+      setNotifyPending(false);
+    }
+  }
+
   function toggleTodoItem(key: string) {
-    setTodoItems(items => 
-      items.map((item: InteractiveTodoItem) => 
+    if (key === "notify") {
+      void handleNotifyRespondent();
+      return;
+    }
+    setTodoItems(items =>
+      items.map((item: InteractiveTodoItem) =>
         item.key === key ? { ...item, completed: !item.completed } : item
       )
     );
@@ -404,6 +444,40 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
       </div>
 
       <div className="space-y-4">
+        {(() => {
+          const normalizeKyc = (k: CaseDetailWorkspaceProps["detail"]["claimantKyc"]) =>
+            k ? { ...k, verifiedAt: k.verifiedAt ? new Date(k.verifiedAt) : null } : null;
+          const claimantIdentity = resolveCaseClaimant(detail.case, normalizeKyc(detail.claimantKyc));
+          const respondentIdentity = resolveCaseRespondent(detail.case, normalizeKyc(detail.respondentKyc));
+          const banners: { who: "claimant" | "respondent"; alleged: string; verified: string }[] = [];
+          if (claimantIdentity.diverges && claimantIdentity.verified && claimantIdentity.alleged) {
+            banners.push({ who: "claimant", alleged: claimantIdentity.alleged, verified: claimantIdentity.verified });
+          }
+          if (respondentIdentity.diverges && respondentIdentity.verified && respondentIdentity.alleged) {
+            banners.push({ who: "respondent", alleged: respondentIdentity.alleged, verified: respondentIdentity.verified });
+          }
+          if (banners.length === 0) return null;
+          return (
+            <div className="space-y-2">
+              {banners.map((b) => (
+                <div
+                  key={b.who}
+                  className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                >
+                  <svg className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3h.008v.008H12v-.008Zm9.75-2.25c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9Z" />
+                  </svg>
+                  <div>
+                    <p className="font-medium capitalize">Identity drift: {b.who}</p>
+                    <p className="mt-0.5">
+                      Filed as <strong>{b.alleged}</strong>, verified as <strong>{b.verified}</strong>.
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-slate-400">{detail.roleLabel}</div>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-ink">{detail.case.title}</h1>
