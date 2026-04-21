@@ -131,6 +131,7 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
   const [contactsError, setContactsError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [contactsSaving, setContactsSaving] = useState(false);
+  const [notificationSent, setNotificationSent] = useState(false);
   const [claimantName, setClaimantName] = useState(detail.case.claimantName || "");
   const [claimantEmail, setClaimantEmail] = useState(detail.case.claimantEmail || "");
   const [claimantPhone, setClaimantPhone] = useState(detail.case.claimantPhone || "");
@@ -568,11 +569,20 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
                       {detail.role === "claimant" && detail.case.respondentEmail?.trim() ? (
                         <button
                           type="button"
-                          onClick={() => startTransition(() => void post(`/api/cases/${detail.case.id}/notify`))}
-                          disabled={isPending}
+                          onClick={() => {
+                            startTransition(async () => {
+                              try {
+                                await post(`/api/cases/${detail.case.id}/notify`);
+                                setNotificationSent(true);
+                              } catch (error) {
+                                // Error handling is already done in the post function
+                              }
+                            });
+                          }}
+                          disabled={isPending || notificationSent}
                           className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
                         >
-                          {isPending ? "Sending..." : "Notify respondent"}
+                          {isPending ? "Sending..." : notificationSent ? "Respondent notified" : "Notify respondent"}
                         </button>
                       ) : null}
                     </div>
