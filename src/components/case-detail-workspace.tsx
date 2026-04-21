@@ -555,15 +555,27 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
                     </div>
                   ) : null}
 
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      disabled={contactsSaving || !contactsHaveChanged}
-                      onClick={() => void saveContacts()}
-                      className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
-                    >
-                      {contactsSaving ? "Saving..." : "Save contacts"}
-                    </button>
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        disabled={contactsSaving || !contactsHaveChanged}
+                        onClick={() => void saveContacts()}
+                        className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                      >
+                        {contactsSaving ? "Saving..." : "Save contacts"}
+                      </button>
+                      {detail.role === "claimant" && detail.case.respondentEmail?.trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => startTransition(() => void post(`/api/cases/${detail.case.id}/notify`))}
+                          disabled={isPending}
+                          className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                        >
+                          {isPending ? "Sending..." : "Notify respondent"}
+                        </button>
+                      ) : null}
+                    </div>
                     <div className="text-sm text-slate-500">
                       Updating respondent email controls where &ldquo;Notify respondent&rdquo; is sent.
                     </div>
