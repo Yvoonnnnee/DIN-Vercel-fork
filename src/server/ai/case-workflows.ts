@@ -610,8 +610,21 @@ export async function acceptJudgement(user: AppUser, caseId: string) {
 }
 
 export async function getLawyerConversation(user: AppUser, caseId: string) {
-  const { authorized } = await getAiContext(user, caseId);
-  if (authorized.role !== "claimant" && authorized.role !== "respondent") {
+  const { authorized, detail } = await getAiContext(user, caseId);
+  
+  // Determine the user's role for lawyer chat access
+  let userRole = authorized.role;
+  
+  // If user is admin/moderator, check if they're also associated as claimant/respondent
+  if (userRole === "admin" || userRole === "moderator") {
+    if (detail.case.claimantEmail === user?.email) {
+      userRole = "claimant";
+    } else if (detail.case.respondentEmail === user?.email) {
+      userRole = "respondent";
+    }
+  }
+  
+  if (userRole !== "claimant" && userRole !== "respondent") {
     throw new Error("Forbidden");
   }
 
@@ -634,7 +647,20 @@ export async function getLawyerConversation(user: AppUser, caseId: string) {
 export async function continueLawyerChat(user: AppUser, caseId: string, payload: unknown) {
   ensureAiReady();
   const { authorized, detail } = await getAiContext(user, caseId);
-  if (authorized.role !== "claimant" && authorized.role !== "respondent") {
+  
+  // Determine the user's role for lawyer chat access
+  let userRole = authorized.role;
+  
+  // If user is admin/moderator, check if they're also associated as claimant/respondent
+  if (userRole === "admin" || userRole === "moderator") {
+    if (detail.case.claimantEmail === user?.email) {
+      userRole = "claimant";
+    } else if (detail.case.respondentEmail === user?.email) {
+      userRole = "respondent";
+    }
+  }
+  
+  if (userRole !== "claimant" && userRole !== "respondent") {
     throw new Error("Forbidden");
   }
 
@@ -650,7 +676,7 @@ export async function continueLawyerChat(user: AppUser, caseId: string, payload:
   const recentHistory = [...history, userMessage].slice(-10);
   const prompt = [
     "You are a practical arbitration lawyer advising a client in an active dispute.",
-    `You are speaking to the ${authorized.role}.`,
+    `You are speaking to the ${userRole}.`,
     `Your tone should be ${parsed.personality}.`,
     "Give concrete guidance tied to the actual case record. Do not claim certainty where the record is incomplete.",
     "",
@@ -694,7 +720,7 @@ export async function continueLawyerChat(user: AppUser, caseId: string, payload:
       userId: user?.id ?? null,
       userEmail: user?.email || "",
       lawyerPersonality: parsed.personality,
-      partyRole: authorized.role,
+      partyRole: userRole,
       messagesJson: nextMessages,
       contextSummary: response.context_summary,
       casePhase: detail.case.status,
@@ -705,7 +731,7 @@ export async function continueLawyerChat(user: AppUser, caseId: string, payload:
     caseId,
     "note",
     "Lawyer chat started",
-    `${authorized.role} started an AI counsel thread.`,
+    `${userRole} started an AI counsel thread.`,
     user?.fullName || user?.email || "Unknown user",
   );
 

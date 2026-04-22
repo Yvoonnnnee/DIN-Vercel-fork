@@ -22,9 +22,12 @@ type LawyerChatPanelProps = {
 export function LawyerChatPanel({ caseId, canUseChat, lawyerName, initialConversation }: LawyerChatPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const [personality, setPersonality] = useState(initialConversation?.lawyerPersonality || "strategic");
   const [message, setMessage] = useState("");
   const [conversation, setConversation] = useState(initialConversation);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  
   const messages = (conversation?.messagesJson || []).flatMap((item) => {
     if (
       typeof item.role === "string"
@@ -45,24 +48,45 @@ export function LawyerChatPanel({ caseId, canUseChat, lawyerName, initialConvers
   });
 
   async function send() {
+    if (!message.trim()) return;
+    
     try {
       setError(null);
       setIsSending(true);
+      
+      // Show user's message immediately
+      const userMessage: LawyerMessage = {
+        role: "user",
+        content: message,
+        createdAt: new Date().toISOString(),
+      };
+      
+      // Add pending message to display immediately
+      setPendingMessage(message);
+      setMessage("");
+      
+      // Show typing indicator
+      setIsTyping(true);
+      
       const response = await fetch(`/api/cases/${caseId}/lawyer-chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, personality }),
+        body: JSON.stringify({ message: userMessage.content, personality }),
       });
       const result = await response.json();
       if (!response.ok) {
         throw new Error(result.error?.message || "Failed to continue chat.");
       }
+      
+      // Update conversation with server response
       setConversation(result.data);
-      setMessage("");
+      setPendingMessage(null);
     } catch (chatError) {
       setError(chatError instanceof Error ? chatError.message : "Failed to continue chat.");
+      setPendingMessage(null);
     } finally {
       setIsSending(false);
+      setIsTyping(false);
     }
   }
 
@@ -112,26 +136,49 @@ export function LawyerChatPanel({ caseId, canUseChat, lawyerName, initialConvers
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-6">
         <div className="space-y-3">
-          {messages.length === 0 ? (
+          {messages.length === 0 && !pendingMessage ? (
             <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
               No messages yet. Ask about strategy, evidence gaps, negotiation framing, or what to do next.
             </div>
           ) : (
-            messages.map((item, index) => (
-              <div
-                key={`${item.createdAt}-${index}`}
-                className={`rounded-2xl px-4 py-3 text-sm leading-7 ${
-                  item.role === "assistant"
-                    ? "bg-ink text-white"
-                    : "bg-slate-50 text-slate-700"
-                }`}
-              >
-                <div className={`text-xs uppercase tracking-[0.16em] ${item.role === "assistant" ? "text-slate-300" : "text-slate-500"}`}>
-                  {item.role === "assistant" ? lawyerName || "AI lawyer" : "You"}
+            <>
+              {messages.map((item, index) => (
+                <div
+                  key={`${item.createdAt}-${index}`}
+                  className={`rounded-2xl px-4 py-3 text-sm leading-7 ${
+                    item.role === "assistant"
+                      ? "bg-ink text-white"
+                      : "bg-slate-50 text-slate-700"
+                  }`}
+                >
+                  <div className={`text-xs uppercase tracking-[0.16em] ${item.role === "assistant" ? "text-slate-300" : "text-slate-500"}`}>
+                    {item.role === "assistant" ? lawyerName || "AI lawyer" : "You"}
+                  </div>
+                  <div className="mt-2">{item.content}</div>
                 </div>
-                <div className="mt-2">{item.content}</div>
-              </div>
-            ))
+              ))}
+              
+              {/* Pending user message */}
+              {pendingMessage && (
+                <div className="rounded-2xl px-4 py-3 text-sm leading-7 bg-slate-50 text-slate-700">
+                  <div className="text-xs uppercase tracking-[0.16em] text-slate-500">You</div>
+                  <div className="mt-2">{pendingMessage}</div>
+                </div>
+              )}
+              
+              {/* Typing Indicator */}
+              {isTyping && (
+                <div className="flex justify-start">
+                  <div className="max-w-[88%] rounded-2xl px-4 py-3 bg-ink text-white shadow-sm">
+                    <div className="flex items-center space-x-1">
+                      <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                      <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                      <div className="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
