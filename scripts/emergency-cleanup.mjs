@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Emergency cleanup script to stop all Pika sessions immediately
- * This bypasses the database and directly calls Pika API to terminate any active sessions
+ * Emergency cleanup script to stop all Anam sessions immediately
+ * This bypasses database and directly calls Anam API to terminate any active sessions
  */
 
 import { neon } from '@neondatabase/serverless';
@@ -20,7 +20,7 @@ const sql = neon(databaseUrl);
 async function emergencyCleanup() {
   try {
     console.log('🚨 EMERGENCY CLEANUP STARTED');
-    console.log('🔍 Finding all active Pika sessions...');
+    console.log('🔍 Finding all active Anam sessions...');
     
     // Find ALL active AI participants across ALL hearings
     const activeSessions = await sql`
@@ -28,12 +28,12 @@ async function emergencyCleanup() {
         id,
         hearing_id,
         display_name,
-        pika_participant_id,
+        anam_session_token,
         joined_at
       FROM hearing_participants
       WHERE is_active = 'true'
         AND participant_type = 'ai_judge'
-        AND pika_participant_id IS NOT NULL
+        AND anam_session_token IS NOT NULL
     `;
 
     console.log(`📊 Found ${activeSessions.length} active AI sessions:`);
@@ -48,7 +48,7 @@ async function emergencyCleanup() {
       const duration = session.joined_at ? 
         Math.round((Date.now() - new Date(session.joined_at).getTime()) / (1000 * 60)) : 
         'Unknown';
-      console.log(`  - ${session.display_name} (${session.pika_participant_id}) - ${duration} minutes running`);
+      console.log(`  - ${session.display_name} (${session.anam_session_token}) - ${duration} minutes running`);
     });
 
     console.log('\n🛑 Attempting to terminate all sessions...');
@@ -58,10 +58,10 @@ async function emergencyCleanup() {
     
     for (const session of activeSessions) {
       try {
-        console.log(`\n🔄 Terminating: ${session.display_name} (${session.pika_participant_id})`);
+        console.log(`\n🔄 Terminating: ${session.display_name} (${session.anam_session_token})`);
         
-        // Try to terminate via Pika API
-        const terminateResponse = await fetch(`${baseUrl}/api/pika-skills?sessionId=${session.pika_participant_id}`, {
+        // Try to terminate via Anam API
+        const terminateResponse = await fetch(`${baseUrl}/api/anam/session?sessionToken=${session.anam_session_token}`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           signal: AbortSignal.timeout(30000)
@@ -114,7 +114,7 @@ async function emergencyCleanup() {
     console.log('\n🔄 Updating hearing statuses...');
     const updatedHearings = await sql`
       UPDATE hearings 
-      SET status = 'completed', pika_session_id = NULL
+      SET status = 'completed'
       WHERE id IN (
         SELECT DISTINCT hearing_id 
         FROM hearing_participants 
@@ -141,14 +141,14 @@ async function emergencyCleanup() {
       console.log(`💰 Estimated credits saved: ${successCount * 180} (2 hours per session)`);
     }
     
-    console.log('\n🔍 CHECK YOUR PIKA BALANCE:');
-    console.log('Visit: https://www.pika.me/dev/');
-    console.log('Your credits should stop decreasing now.');
+    console.log('\n🔍 CHECK YOUR ANAM DASHBOARD:');
+    console.log('Visit: https://dashboard.anam.ai/');
+    console.log('Your sessions should be stopped now.');
     
     if (failCount > 0) {
       console.log('\n⚠️ Some sessions failed to terminate via API.');
-      console.log('However, they have been marked inactive in the database.');
-      console.log('If credits are still draining, contact Pika support immediately.');
+      console.log('However, they have been marked inactive in database.');
+      console.log('If issues persist, contact Anam support immediately.');
     }
 
   } catch (error) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ensureAppUser } from '@/server/auth/provision';
 import { getCaseDetail } from '@/server/cases/queries';
-import { createGoogleMeet, GoogleMeetError } from '@/lib/google-meet';
+import { createCalendarEvent, GoogleCalendarError } from '@/lib/google-calendar';
 import { getDb } from '@/db/client';
 import { hearings } from '@/db/schema';
 import { eq } from 'drizzle-orm';
@@ -49,8 +49,8 @@ export async function POST(
     const durationMinutes = Math.max(15, Math.min(480, duration ? parseInt(duration) : 60)); // Between 15min and 8 hours
     const endTime = new Date(startTimeDate.getTime() + durationMinutes * 60 * 1000);
 
-    // Create Google Calendar event (reusing the Google Meet function but for calendar only)
-    const eventData = await createGoogleMeet({
+    // Create Google Calendar event (reusing Google Meet function but for calendar only)
+    const eventData = await createCalendarEvent({
       title: title.trim(),
       caseId,
       startTime: startTimeDate,
@@ -117,10 +117,12 @@ export async function POST(
       console.error('Calendar event creation error:', error);
     }
     
-    if (error instanceof GoogleMeetError) {
+    if (error instanceof GoogleCalendarError) {
       // Handle specific Google Calendar errors with appropriate status codes
       const statusCode = error.code === 'INVALID_INPUT' || error.code === 'INVALID_TIME' ? 400 :
                         error.code === 'PERMISSION_DENIED' ? 403 :
+                        error.code === 'CALENDAR_NOT_FOUND' ? 404 :
+                        error.code === 'CALENDAR_ACCESS_DENIED' ? 403 :
                         error.code === 'MISSING_CREDENTIALS' ? 500 :
                         error.code === 'AUTH_ERROR' ? 401 : 500;
       
@@ -128,8 +130,7 @@ export async function POST(
         { 
           error: { 
             message: error.message,
-            code: error.code,
-            details: process.env.NODE_ENV === 'development' ? error.details : undefined
+            code: error.code
           } 
         },
         { status: statusCode }

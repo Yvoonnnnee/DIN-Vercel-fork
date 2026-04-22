@@ -18,7 +18,6 @@ interface Hearing {
   isTranscribing: string;
   autoTranscribe: string;
   transcriptionSessionId?: string;
-  pikaSessionId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -252,13 +251,7 @@ export function ExistingHearings({ caseId, caseTitle }: ExistingHearingsProps) {
                     </div>
                   )}
                   
-                  {hearing.pikaSessionId && (
-                    <div>
-                      <div className="font-medium text-gray-700">AI Session:</div>
-                      <div className="text-green-600">Active</div>
-                    </div>
-                  )}
-                </div>
+                                  </div>
               </div>
 
               {/* Action Buttons */}

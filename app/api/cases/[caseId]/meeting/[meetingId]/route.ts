@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ensureAppUser } from '@/server/auth/provision';
-import { deleteGoogleCalendarEvent, GoogleMeetError } from '@/lib/google-meet';
+import { deleteGoogleCalendarEvent, GoogleCalendarError } from '@/lib/google-calendar';
 
 export async function DELETE(
   request: NextRequest,
@@ -26,7 +26,7 @@ export async function DELETE(
       console.error('Calendar event deletion error:', error);
     }
     
-    if (error instanceof GoogleMeetError) {
+    if (error instanceof GoogleCalendarError) {
       const statusCode = error.code === 'CALENDAR_ACCESS_DENIED' ? 403 :
                         error.code === 'NOT_AUTHORIZED' ? 401 : 500;
       

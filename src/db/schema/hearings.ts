@@ -15,7 +15,7 @@ export const hearings = pgTable(
     
     // Meeting Information
     meetingUrl: text("meeting_url"),
-    meetingPlatform: text("meeting_platform").default("google_meet"), // "google_meet", "zoom", "teams"
+    meetingPlatform: text("meeting_platform").default("anam"), // "anam", "zoom", "teams"
     meetingId: text("meeting_id"), // Platform-specific meeting ID
     
     // Hearing Status & Phase
@@ -30,7 +30,6 @@ export const hearings = pgTable(
     // Real-time Processing
     transcriptionSessionId: text("transcription_session_id"),
     lastTranscriptionAt: timestamp("last_transcription_at", { withTimezone: true }),
-    pikaSessionId: text("pika_session_id"), // Session ID for Pika Skills AI agent management
     
     // Hearing Control
     isRecording: text("is_recording").default("false").notNull(), // "true", "false"
@@ -118,9 +117,7 @@ export const hearingParticipants = pgTable(
     joinedAt: timestamp("joined_at", { withTimezone: true }),
     leftAt: timestamp("left_at", { withTimezone: true }),
     isActive: text("is_active").default("true").notNull(), // "true", "false"
-    
-    // Technical Details
-    pikaParticipantId: text("pika_participant_id"), // ID from Pika Skills system
+    anamSessionToken: text("anam_session_token"), // Session token from Anam AI system
     meetingParticipantId: text("meeting_participant_id"), // ID from meeting platform
     
     createdAt,

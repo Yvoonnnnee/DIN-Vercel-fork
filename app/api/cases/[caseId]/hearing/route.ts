@@ -110,21 +110,21 @@ export async function PATCH(request: Request, { params }: RouteProps) {
 
           // Stop all active AI agents
           for (const participant of activeParticipants) {
-            if (participant.pikaParticipantId) {
+            if (participant.anamSessionToken) {
               try {
-                // Terminate Pika session
-                const terminateResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/pika-skills?sessionId=${participant.pikaParticipantId}`, {
+                // Terminate Anam session
+                const terminateResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/anam/session?sessionToken=${participant.anamSessionToken}`, {
                   method: 'DELETE',
                   signal: AbortSignal.timeout(30000)
                 });
                 
                 if (terminateResponse.ok) {
-                  console.log(`✅ Terminated Pika session for ${participant.displayName}`);
+                  console.log(`✅ Terminated Anam session for ${participant.displayName}`);
                 } else {
-                  console.log(`⚠️ Failed to terminate Pika session for ${participant.displayName}: ${terminateResponse.status}`);
+                  console.log(`⚠️ Failed to terminate Anam session for ${participant.displayName}: ${terminateResponse.status}`);
                 }
               } catch (error) {
-                console.log(`❌ Error terminating Pika session for ${participant.displayName}:`, error);
+                console.log(`❌ Error terminating Anam session for ${participant.displayName}:`, error);
               }
 
               // Mark participant as inactive
@@ -141,7 +141,6 @@ export async function PATCH(request: Request, { params }: RouteProps) {
           await db.update(hearings)
             .set({
               transcriptionSessionId: null,
-              pikaSessionId: null,
             })
             .where(eq(hearings.id, body.hearingId));
 
@@ -165,7 +164,7 @@ export async function PATCH(request: Request, { params }: RouteProps) {
         scheduledStartTime: body.hearingDate ? new Date(body.hearingDate) : new Date(),
         scheduledEndTime: body.endTime ? new Date(body.endTime) : undefined,
         meetingUrl: body.meetingUrl,
-        meetingPlatform: body.meetingPlatform || 'google_meet',
+        meetingPlatform: body.meetingPlatform || 'DIN.org',
         meetingId: body.meetingId,
         status: body.status || 'scheduled',
         phase: 'pre_hearing',

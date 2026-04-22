@@ -2,14 +2,14 @@ import { google } from 'googleapis';
 import { createCalendarClient, getStoredTokens, refreshTokens, storeTokens } from './google-oauth';
 
 // Enhanced error types for better error handling
-export class GoogleMeetError extends Error {
+export class GoogleCalendarError extends Error {
   constructor(
     message: string,
     public code?: string,
     public details?: any
   ) {
     super(message);
-    this.name = 'GoogleMeetError';
+    this.name = 'GoogleCalendarError';
   }
 }
 
@@ -19,7 +19,7 @@ const getAuthenticatedCalendarClient = async () => {
   let tokens = await getStoredTokens(userId);
   
   if (!tokens) {
-    throw new GoogleMeetError(
+    throw new GoogleCalendarError(
       'Google not authorized. Please connect your Google account first.',
       'NOT_AUTHORIZED'
     );
@@ -31,7 +31,7 @@ const getAuthenticatedCalendarClient = async () => {
       tokens = await refreshTokens(tokens.refresh_token);
       await storeTokens(userId, tokens);
     } else {
-      throw new GoogleMeetError(
+      throw new GoogleCalendarError(
         'Google authorization expired. Please reconnect your account.',
         'TOKEN_EXPIRED'
       );
@@ -61,15 +61,15 @@ export interface MeetingData {
   calendarEventId?: string;
 }
 
-export async function createGoogleMeet(params: CreateMeetingParams): Promise<MeetingData> {
+export async function createCalendarEvent(params: CreateMeetingParams): Promise<MeetingData> {
   try {
     // Input validation
     if (!params.title?.trim()) {
-      throw new GoogleMeetError('Meeting title is required', 'INVALID_INPUT');
+      throw new GoogleCalendarError('Meeting title is required', 'INVALID_INPUT');
     }
     
     if (!params.caseId?.trim()) {
-      throw new GoogleMeetError('Case ID is required', 'INVALID_INPUT');
+      throw new GoogleCalendarError('Case ID is required', 'INVALID_INPUT');
     }
     
     const startTime = params.startTime || new Date();
@@ -78,16 +78,24 @@ export async function createGoogleMeet(params: CreateMeetingParams): Promise<Mee
     
     // Validate that startTime is in the future
     if (startTime.getTime() <= Date.now() - 5 * 60 * 1000) { // Allow 5 min buffer
-      throw new GoogleMeetError('Meeting start time must be in the future', 'INVALID_TIME');
+      throw new GoogleCalendarError('Meeting start time must be in the future', 'INVALID_TIME');
     }
 
     // Get authenticated calendar client with OAuth
     const calendar = await getAuthenticatedCalendarClient();
     
-    // Create calendar event without any conference functionality
+    // Check calendar's supported conference solution types
     const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
     
     try {
+      const calendarInfo = await calendar.calendars.get({
+        calendarId: calendarId
+      });
+      
+      const allowedTypes = calendarInfo.data.conferenceProperties?.allowedConferenceSolutionTypes || [];
+      const supportedMeetType = allowedTypes.find((type: any) => 
+        type === 'hangoutsMeet' || type === 'eventHangout' || type === 'eventNamedHangout'
+      );
       
       // Build attendees list with validation (claimant, defendant, and additional attendees)
       const attendees = [
@@ -107,13 +115,98 @@ export async function createGoogleMeet(params: CreateMeetingParams): Promise<Mee
         }
       }
       
-      // Create calendar event without any conference functionality
+      if (!supportedMeetType) {
+        // Create event without conference data first
+        const calendarEvent = await calendar.events.insert({
+          calendarId: calendarId,
+          conferenceDataVersion: 0, // Don't try to create conference
+          sendUpdates: 'all', // Send email invitations to all attendees
+          requestBody: {
+            summary: params.title.trim(),
+            description: params.description || `Court Hearing for Case ID: ${params.caseId}`,
+            start: {
+              dateTime: startTime.toISOString(),
+              timeZone: 'UTC'
+            },
+            end: {
+              dateTime: endTime.toISOString(),
+              timeZone: 'UTC'
+            },
+            attendees: attendees.length > 0 ? attendees : undefined,
+            reminders: {
+              useDefault: false,
+              overrides: [
+                { method: 'email' as const, minutes: 60 },
+                { method: 'popup' as const, minutes: 15 }
+              ]
+            },
+            visibility: 'public',
+            transparency: 'opaque'
+          }
+        });
+        
+        const event = calendarEvent.data;
+        
+        // Now try to add Google Meet to the created event
+        try {
+          const updatedEvent = await calendar.events.patch({
+            calendarId: calendarId,
+            eventId: event.id!,
+            conferenceDataVersion: 1,
+            sendUpdates: 'all', // Send email invitations to all attendees
+            requestBody: {
+              conferenceData: {
+                createRequest: {
+                  requestId: `hearing_${params.caseId}_${Date.now()}`,
+                  conferenceSolutionKey: {
+                    type: 'hangoutsMeet'
+                  }
+                }
+              }
+            }
+          });
+          
+          const updatedEventData = updatedEvent.data;
+          const meetUrl = updatedEventData.conferenceData?.entryPoints?.[0]?.uri || updatedEventData.htmlLink;
+          
+          return {
+            id: event.id || `hearing_${params.caseId}_${Date.now()}`,
+            title: params.title,
+            meetingUrl: meetUrl || '',
+            startTime: startTime.toISOString(),
+            endTime: endTime.toISOString(),
+            calendarEventId: event.id || undefined
+          };
+          
+        } catch (meetError) {
+          // Return calendar event link as fallback
+          const meetingUrl = event.htmlLink;
+          
+          return {
+            id: event.id || `hearing_${params.caseId}_${Date.now()}`,
+            title: params.title,
+            meetingUrl: meetingUrl || '',
+            startTime: startTime.toISOString(),
+            endTime: endTime.toISOString(),
+            calendarEventId: event.id || undefined
+          };
+        }
+      }
+      
       const calendarEvent = await calendar.events.insert({
         calendarId: calendarId,
         sendUpdates: 'all', // Send email invitations to all attendees
         requestBody: {
           summary: params.title.trim(),
-          description: params.description || `Court hearing scheduled for case: ${params.caseId}\n\nJoin the hearing at: ${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/cases/${params.caseId}`,
+          description: params.description || `Court Hearing for Case ID: ${params.caseId}`,
+          conferenceData: {
+            createRequest: {
+              requestId: `hearing_${params.caseId}_${Date.now()}`,
+              conferenceSolutionKey: {
+                type: supportedMeetType as any
+              }
+            }
+          },
           start: {
             dateTime: startTime.toISOString(),
             timeZone: 'UTC'
@@ -130,20 +223,35 @@ export async function createGoogleMeet(params: CreateMeetingParams): Promise<Mee
               { method: 'popup' as const, minutes: 15 }
             ]
           },
+          // Add visibility and transparency settings
           visibility: 'public',
           transparency: 'opaque'
-        }
+        },
+        // Ensure conference data is created
+        conferenceDataVersion: 1
       });
       
       const event = calendarEvent.data;
       
-      // Use case page URL as the meeting URL
-      const meetingUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/cases/${params.caseId}`;
+      // Extract meeting URL from conference data or fallback to htmlLink
+      let meetingUrl = event.htmlLink;
+      if (event.conferenceData?.entryPoints?.[0]?.uri) {
+        meetingUrl = event.conferenceData.entryPoints[0].uri;
+      }
+      
+      if (!meetingUrl) {
+        throw new GoogleCalendarError(
+          'No meeting URL generated',
+          'NO_MEETING_URL',
+          event
+        );
+      }
+      
       
       return {
         id: event.id || `hearing_${params.caseId}_${Date.now()}`,
         title: params.title,
-        meetingUrl: meetingUrl,
+        meetingUrl: meetingUrl || '',
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
         calendarEventId: event.id || undefined
@@ -152,7 +260,7 @@ export async function createGoogleMeet(params: CreateMeetingParams): Promise<Mee
     } catch (calendarError) {
       
       if (calendarError && typeof calendarError === 'object' && 'code' in calendarError && calendarError.code === 404) {
-        throw new GoogleMeetError(
+        throw new GoogleCalendarError(
           `Calendar not found: ${calendarId}. Please check GOOGLE_CALENDAR_ID environment variable.`,
           'CALENDAR_NOT_FOUND',
           calendarError
@@ -160,7 +268,7 @@ export async function createGoogleMeet(params: CreateMeetingParams): Promise<Mee
       }
       
       if (calendarError && typeof calendarError === 'object' && 'code' in calendarError && calendarError.code === 403) {
-        throw new GoogleMeetError(
+        throw new GoogleCalendarError(
           `Access denied to calendar: ${calendarId}. Please ensure OAuth authorization includes calendar access.`,
           'CALENDAR_ACCESS_DENIED',
           calendarError
@@ -171,7 +279,7 @@ export async function createGoogleMeet(params: CreateMeetingParams): Promise<Mee
     }
     
   } catch (error) {
-    if (error instanceof GoogleMeetError) {
+    if (error instanceof GoogleCalendarError) {
       throw error;
     }
     
@@ -179,14 +287,14 @@ export async function createGoogleMeet(params: CreateMeetingParams): Promise<Mee
     if (error && typeof error === 'object' && 'code' in error) {
       const errorCode = error.code;
       if (errorCode === 403) {
-        throw new GoogleMeetError(
+        throw new GoogleCalendarError(
           'Insufficient permissions. Check OAuth authorization.',
           'PERMISSION_DENIED',
           error
         );
       }
       if (errorCode === 400) {
-        throw new GoogleMeetError(
+        throw new GoogleCalendarError(
           'Invalid request. Check calendar ID and event data.',
           'INVALID_REQUEST',
           error
@@ -194,7 +302,7 @@ export async function createGoogleMeet(params: CreateMeetingParams): Promise<Mee
       }
     }
     
-    throw new GoogleMeetError(
+    throw new GoogleCalendarError(
       'Failed to create calendar event',
       'CREATE_ERROR',
       error
@@ -222,7 +330,7 @@ export const deleteGoogleCalendarEvent = async (eventId: string) => {
     }
     
     if (error && typeof error === 'object' && 'code' in error && error.code === 403) {
-      throw new GoogleMeetError(
+      throw new GoogleCalendarError(
         'Access denied to calendar. Please ensure OAuth authorization includes calendar access.',
         'CALENDAR_ACCESS_DENIED',
         error
@@ -230,7 +338,7 @@ export const deleteGoogleCalendarEvent = async (eventId: string) => {
     }
     
     console.error('Failed to delete calendar event:', error);
-    throw new GoogleMeetError(
+    throw new GoogleCalendarError(
       'Failed to delete calendar event',
       'DELETE_ERROR',
       error
