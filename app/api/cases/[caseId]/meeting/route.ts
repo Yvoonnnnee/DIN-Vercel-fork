@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ensureAppUser } from '@/server/auth/provision';
 import { getCaseDetail } from '@/server/cases/queries';
-import { createGoogleMeet, GoogleMeetError } from '@/lib/google-meet';
+import { createCalendarEvent, GoogleCalendarError } from '@/lib/google-calendar';
 import { getDb } from '@/db/client';
 import { hearings } from '@/db/schema';
 import { eq } from 'drizzle-orm';
@@ -50,7 +50,7 @@ export async function POST(
     const endTime = new Date(startTimeDate.getTime() + durationMinutes * 60 * 1000);
 
     // Create real Google Meet
-    const meetingData = await createGoogleMeet({
+    const meetingData = await createCalendarEvent({
       title: title.trim(),
       caseId,
       startTime: startTimeDate,
@@ -120,7 +120,7 @@ export async function POST(
       console.error('Meeting creation error:', error);
     }
     
-    if (error instanceof GoogleMeetError) {
+    if (error instanceof GoogleCalendarError) {
       // Handle specific Google Meet errors with appropriate status codes
       const statusCode = error.code === 'INVALID_INPUT' || error.code === 'INVALID_TIME' ? 400 :
                         error.code === 'PERMISSION_DENIED' ? 403 :
