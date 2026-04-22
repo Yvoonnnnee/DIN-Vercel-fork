@@ -65,4 +65,8 @@ export const activityTypeEnum = pgEnum("activity_type", [
   "document_request",
   "other",
 ]);
+export const arbitrationResponseEnum = pgEnum("arbitration_response", [
+  "accepted",
+  "rejected",
+]);
 export const tokenLedgerStatusEnum = pgEnum("token_ledger_status", ["pending", "committed", "reversed"]);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 type ArbitrationPanelProps = {
@@ -8,13 +8,18 @@ type ArbitrationPanelProps = {
   status: string;
   proposal: Record<string, unknown> | null;
   finalDecision: string | null;
+  arbitrationClaimantResponse?: string | null;
+  arbitrationRespondentResponse?: string | null;
+  claimantEmail?: string | null;
+  respondentEmail?: string | null;
+  user?: any;
 };
 
-export function ArbitrationPanel({ caseId, status, proposal, finalDecision }: ArbitrationPanelProps) {
+export function ArbitrationPanel({ caseId, status, proposal, finalDecision, arbitrationClaimantResponse, arbitrationRespondentResponse, claimantEmail, respondentEmail, user }: ArbitrationPanelProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
-  const [isPending, startTransition] = useTransition();
+  const [isGenerating, setIsGenerating] = useState(false);
   const parsed = (proposal || {}) as {
     claimant_perspective?: string;
     respondent_perspective?: string;
@@ -25,20 +30,66 @@ export function ArbitrationPanel({ caseId, status, proposal, finalDecision }: Ar
     next_steps?: string[];
   };
 
+  // Determine arbitration state from response columns
+  const isAccepted = arbitrationClaimantResponse === 'accepted' && arbitrationRespondentResponse === 'accepted';
+  const isRejected = arbitrationClaimantResponse === 'rejected' || arbitrationRespondentResponse === 'rejected';
+  const isGenerated = arbitrationClaimantResponse == null && arbitrationRespondentResponse == null && proposal;
+  
+  // Determine current user's response status
+  const getUserResponseStatus = () => {
+    if (!user?.email) return null;
+    
+    if (user.email === claimantEmail) {
+      if (arbitrationClaimantResponse === 'accepted') return 'accepted';
+      if (arbitrationClaimantResponse === 'rejected') return 'rejected';
+    } else if (user.email === respondentEmail) {
+      if (arbitrationRespondentResponse === 'accepted') return 'accepted';
+      if (arbitrationRespondentResponse === 'rejected') return 'rejected';
+    }
+    return null;
+  };
+  
+  const getRejectedByDisplay = () => {
+    if (arbitrationClaimantResponse === 'rejected' && arbitrationRespondentResponse === 'rejected') {
+      return "Both parties";
+    } else if (arbitrationClaimantResponse === 'rejected') {
+      return "Claimant";
+    } else if (arbitrationRespondentResponse === 'rejected') {
+      return "Respondent";
+    }
+    return "";
+  };
+
+  const getAcceptedByDisplay = () => {
+    if (arbitrationClaimantResponse === 'accepted' && arbitrationRespondentResponse === 'accepted') {
+      return "Both parties";
+    } else if (arbitrationClaimantResponse === 'accepted') {
+      return "Claimant";
+    } else if (arbitrationRespondentResponse === 'accepted') {
+      return "Respondent";
+    }
+    return "";
+  };
+
   async function submit(body: Record<string, unknown>) {
     setError(null);
-    const response = await fetch(`/api/cases/${caseId}/arbitration`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      setError(result.error?.message || "Arbitration request failed.");
-      return;
+    setIsGenerating(true);
+    try {
+      const response = await fetch(`/api/cases/${caseId}/arbitration`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        setError(result.error?.message || "Arbitration request failed.");
+        return;
+      }
+      setNote("");
+      router.refresh();
+    } finally {
+      setIsGenerating(false);
     }
-    setNote("");
-    router.refresh();
   }
 
   return (
@@ -47,18 +98,25 @@ export function ArbitrationPanel({ caseId, status, proposal, finalDecision }: Ar
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-[0.2em] text-slate-400">AI arbitration</div>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink">Settlement proposal</h2>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink">
+              Settlement proposal
+            </h2>
             <p className="mt-2 max-w-2xl text-sm text-slate-600">
-              Generate a neutral proposal, then resolve the case from that recommendation or return it to decision.
+              {isAccepted 
+                ? "Both parties have accepted the proposal. The case can proceed to resolution." 
+                : isRejected 
+                  ? "The proposal has been rejected."
+                  : "Generate a neutral proposal, then resolve the case from that recommendation or return it to decision."
+              }
             </p>
           </div>
           <button
             type="button"
-            disabled={isPending}
-            onClick={() => startTransition(() => void submit({ action: "generate" }))}
+            disabled={isGenerating}
+            onClick={() => void submit({ action: "generate" })}
             className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
           >
-            {isPending ? "Working..." : proposal ? "Regenerate proposal" : "Generate proposal"}
+            {isGenerating ? "Generating..." : proposal ? "Regenerate proposal" : "Generate proposal"}
           </button>
         </div>
 
@@ -67,6 +125,31 @@ export function ArbitrationPanel({ caseId, status, proposal, finalDecision }: Ar
             {error}
           </div>
         ) : null}
+
+        {/* Personal Status Banner */}
+        {(() => {
+          const userResponseStatus = getUserResponseStatus();
+          if (userResponseStatus === 'accepted') {
+            return (
+              <div className="mt-4 rounded-2xl bg-emerald-50 border border-emerald-200 p-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-emerald-600 rounded-full"></div>
+                  <span className="text-sm font-medium text-emerald-900">You have accepted this proposal</span>
+                </div>
+              </div>
+            );
+          } else if (userResponseStatus === 'rejected') {
+            return (
+              <div className="mt-4 rounded-2xl bg-rose-50 border border-rose-200 p-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-rose-600 rounded-full"></div>
+                  <span className="text-sm font-medium text-rose-900">You have rejected this proposal</span>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
       </section>
 
       
@@ -113,33 +196,35 @@ export function ArbitrationPanel({ caseId, status, proposal, finalDecision }: Ar
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 p-4">
-            <textarea
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              rows={3}
-              placeholder="Optional note when rejecting the proposal"
-              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
-            />
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={() => startTransition(() => void submit({ action: "accept" }))}
-                className="rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-              >
-                Accept proposal
-              </button>
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={() => startTransition(() => void submit({ action: "reject", note }))}
-                className="rounded-full border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:opacity-50"
-              >
-                Reject proposal
-              </button>
+          {isGenerated && (
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <textarea
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                rows={3}
+                placeholder="Optional note when accepting or rejecting the proposal"
+                className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm"
+              />
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={isGenerating}
+                  onClick={() => void submit({ action: "accept" })}
+                  className="rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  Accept proposal
+                </button>
+                <button
+                  type="button"
+                  disabled={isGenerating}
+                  onClick={() => void submit({ action: "reject", note: note.trim() || undefined })}
+                  className="rounded-full border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:opacity-50"
+                >
+                  Reject proposal
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </section>
       )}
     </div>

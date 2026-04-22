@@ -278,6 +278,8 @@ export async function generateArbitrationProposal(user: AppUser, caseId: string)
       arbitrationProposalJson: proposal,
       settlementAmount: proposal.settlement_amount.toString(),
       finalDecision: null,
+      arbitrationClaimantResponse: null,
+      arbitrationRespondentResponse: null,
     })
     .where(eq(cases.id, caseId))
     .returning();
@@ -293,12 +295,25 @@ export async function generateArbitrationProposal(user: AppUser, caseId: string)
   return updated[0];
 }
 
-export async function acceptArbitrationProposal(user: AppUser, caseId: string) {
-  const { detail } = await getAiContext(user, caseId);
+export async function acceptArbitrationProposal(user: AppUser, caseId: string, claimantResponse?: "accepted" | "rejected", respondentResponse?: "accepted" | "rejected") {
+  const { authorized, detail } = await getAiContext(user, caseId);
   const proposal = detail.case.arbitrationProposalJson;
 
   if (!proposal || typeof proposal !== "object") {
     throw new Error("No arbitration proposal is available yet.");
+  }
+
+  // Determine the user's role for this case
+  let userRole = authorized.role;
+  
+  // If user is admin/moderator, check if they're also associated as claimant/respondent
+  if (userRole === "admin" || userRole === "moderator") {
+    // Check case association to determine actual role for arbitration response
+    if (detail.case.claimantEmail === user?.email) {
+      userRole = "claimant";
+    } else if (detail.case.respondentEmail === user?.email) {
+      userRole = "respondent";
+    }
   }
 
   const summary =
@@ -311,13 +326,25 @@ export async function acceptArbitrationProposal(user: AppUser, caseId: string) {
       : null;
 
   const db = getDb();
+  
+  // Only claimants and respondents can accept/reject arbitration proposals
+  let updateData: any = {
+    status: "resolved",
+    finalDecision: summary,
+    settlementAmount: amount,
+  };
+  
+  if (userRole === "claimant") {
+    updateData.arbitrationClaimantResponse = claimantResponse || "accepted";
+  } else if (userRole === "respondent") {
+    updateData.arbitrationRespondentResponse = respondentResponse || "accepted";
+  } else {
+    throw new Error(`Only claimants and respondents can accept or reject arbitration proposals. Your current role is: ${userRole || 'unknown'}`);
+  }
+  
   const updated = await db
     .update(cases)
-    .set({
-      status: "resolved",
-      finalDecision: summary,
-      settlementAmount: amount,
-    })
+    .set(updateData)
     .where(eq(cases.id, caseId))
     .returning();
 
@@ -332,15 +359,39 @@ export async function acceptArbitrationProposal(user: AppUser, caseId: string) {
   return updated[0];
 }
 
-export async function rejectArbitrationProposal(user: AppUser, caseId: string, note?: string) {
-  await getAiContext(user, caseId);
+export async function rejectArbitrationProposal(user: AppUser, caseId: string, note?: string, claimantResponse?: "accepted" | "rejected", respondentResponse?: "accepted" | "rejected") {
+  const { authorized, detail } = await getAiContext(user, caseId);
   const db = getDb();
+  
+  // Only claimants and respondents can accept/reject arbitration proposals
+  let updateData: any = {
+    status: "awaiting_decision",
+  };
+  
+  // Determine the user's role for this case
+  let userRole = authorized.role;
+  
+  // If user is admin/moderator, check if they're also associated as claimant/respondent
+  if (userRole === "admin" || userRole === "moderator") {
+    // Check case association to determine actual role for arbitration response
+    if (detail.case.claimantEmail === user?.email) {
+      userRole = "claimant";
+    } else if (detail.case.respondentEmail === user?.email) {
+      userRole = "respondent";
+    }
+  }
+  
+  if (userRole === "claimant") {
+    updateData.arbitrationClaimantResponse = claimantResponse || "rejected";
+  } else if (userRole === "respondent") {
+    updateData.arbitrationRespondentResponse = respondentResponse || "rejected";
+  } else {
+    throw new Error(`Only claimants and respondents can accept or reject arbitration proposals. Your current role is: ${userRole || 'unknown'}`);
+  }
+  
   const updated = await db
     .update(cases)
-    .set({
-      status: "awaiting_decision",
-      notes: note || "Arbitration proposal rejected.",
-    })
+    .set(updateData)
     .where(eq(cases.id, caseId))
     .returning();
 
@@ -348,7 +399,7 @@ export async function rejectArbitrationProposal(user: AppUser, caseId: string, n
     caseId,
     "status_change",
     "Arbitration proposal rejected",
-    note || "Case returned to decision stage.",
+    note || `${userRole} rejected the arbitration proposal.`,
     user?.fullName || user?.email || "Unknown user",
   );
 

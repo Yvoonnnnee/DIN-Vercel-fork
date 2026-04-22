@@ -1,5 +1,5 @@
 import { index, jsonb, numeric, pgTable, text, timestamp } from "drizzle-orm/pg-core";
-import { caseStatusEnum, priorityEnum } from "./enums";
+import { arbitrationResponseEnum, caseStatusEnum, priorityEnum } from "./enums";
 import { createdAt, id, updatedAt } from "./common";
 
 export const cases = pgTable(
@@ -30,6 +30,8 @@ export const cases = pgTable(
     respondentLawyerKey: text("respondent_lawyer_key"),
     aiSuggestion: text("ai_suggestion"),
     arbitrationProposalJson: jsonb("arbitration_proposal_json").$type<Record<string, unknown> | null>(),
+    arbitrationClaimantResponse: arbitrationResponseEnum("arbitration_claimant_response"),
+    arbitrationRespondentResponse: arbitrationResponseEnum("arbitration_respondent_response"),
     judgementJson: jsonb("judgement_json").$type<Record<string, unknown> | null>(),
     finalDecision: text("final_decision"),
     settlementAmount: numeric("settlement_amount", { precision: 12, scale: 2 }),

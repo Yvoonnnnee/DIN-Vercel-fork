@@ -772,6 +772,11 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
             status={detail.case.status}
             proposal={(detail.case as any).arbitrationProposalJson}
             finalDecision={detail.case.finalDecision}
+            arbitrationClaimantResponse={(detail.case as any).arbitrationClaimantResponse}
+            arbitrationRespondentResponse={(detail.case as any).arbitrationRespondentResponse}
+            claimantEmail={detail.case.claimantEmail}
+            respondentEmail={detail.case.respondentEmail}
+            user={user}
           />
         </div>
       ) : null}

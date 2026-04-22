@@ -11,10 +11,14 @@ export const arbitrationActionSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("accept"),
+    arbitrationClaimantResponse: z.enum(["accepted", "rejected"]).optional(),
+    arbitrationRespondentResponse: z.enum(["accepted", "rejected"]).optional(),
   }),
   z.object({
     action: z.literal("reject"),
-    note: z.string().trim().min(3).max(500).optional(),
+    note: z.string().trim().max(500).optional(),
+    arbitrationClaimantResponse: z.enum(["accepted", "rejected"]).optional(),
+    arbitrationRespondentResponse: z.enum(["accepted", "rejected"]).optional(),
   }),
 ]);
 

@@ -23,12 +23,17 @@ export async function POST(request: Request, { params }: RouteProps) {
     }
 
     if (body.action === "accept") {
-      const caseItem = await acceptArbitrationProposal(user, caseId);
+      const caseItem = await acceptArbitrationProposal(user, caseId, body.arbitrationClaimantResponse, body.arbitrationRespondentResponse);
       return ok(caseItem);
     }
 
-    const caseItem = await rejectArbitrationProposal(user, caseId, body.note);
-    return ok(caseItem);
+    if (body.action === "reject") {
+      const caseItem = await rejectArbitrationProposal(user, caseId, body.note, body.arbitrationClaimantResponse, body.arbitrationRespondentResponse);
+      return ok(caseItem);
+    }
+
+    return fail("INVALID_ACTION", "Invalid action specified", 400);
+
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update arbitration";
     const status =
