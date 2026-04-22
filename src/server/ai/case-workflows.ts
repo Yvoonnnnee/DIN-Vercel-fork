@@ -484,18 +484,14 @@ export async function generateJudgement(user: AppUser, caseId: string, clearSimu
   return updated[0];
 }
 
-export async function acceptJudgement(user: AppUser, caseId: string) {
-  console.log('acceptJudgement called:', { userId: user?.id, caseId });
-  
+export async function acceptJudgement(user: AppUser, caseId: string) {  
+
   const { authorized, detail } = await getAiContext(user, caseId);
-  console.log('Got AI context:', { authorizedRole: authorized.role, caseStatus: detail.case.status });
   
   assertModerator(authorized.role);
   const judgement = detail.case.judgementJson;
-  console.log('Judgement data:', !!judgement, typeof judgement);
 
   if (!judgement || typeof judgement !== "object") {
-    console.log('No judgement available, throwing error');
     throw new Error("No judgement is available yet.");
   }
 
@@ -519,22 +515,6 @@ export async function acceptJudgement(user: AppUser, caseId: string) {
   }
 
   const db = getDb();
-  console.log('Database connection established');
-  console.log('Updating case with:', { status: "resolved", finalDecision: finalDecisionText, settlementAmount: amount });
-  
-  // First, let's check the current state before updating
-  const currentCase = await db.select().from(cases).where(eq(cases.id, caseId)).limit(1);
-  console.log('Current case state before update:', { 
-    id: currentCase[0]?.id, 
-    status: currentCase[0]?.status, 
-    finalDecision: currentCase[0]?.finalDecision 
-  });
-  
-  console.log('Attempting database update with fields:', {
-      status: "resolved",
-      finalDecision: finalDecisionText,
-      settlementAmount: amount,
-    });
 
   const updated = await db
     .update(cases)
@@ -546,27 +526,12 @@ export async function acceptJudgement(user: AppUser, caseId: string) {
     .where(eq(cases.id, caseId))
     .returning();
 
-  console.log('Database update completed:', { 
-    updatedCount: updated.length, 
-    newStatus: updated[0]?.status, 
-    newFinalDecision: updated[0]?.finalDecision 
-  });
-
   // Verify the update by querying the database again
   const verificationCase = await db.select().from(cases).where(eq(cases.id, caseId)).limit(1);
-  console.log('Verification - case state after update:', { 
-    id: verificationCase[0]?.id, 
-    status: verificationCase[0]?.status, 
-    finalDecision: verificationCase[0]?.finalDecision 
-  });
 
   // Wait a moment and check again to see if something overwrites it
   await new Promise(resolve => setTimeout(resolve, 500));
   const delayedVerification = await db.select().from(cases).where(eq(cases.id, caseId)).limit(1);
-  console.log('Delayed verification (500ms later):', { 
-    status: delayedVerification[0]?.status,
-    updatedAt: delayedVerification[0]?.updatedAt 
-  });
 
   // If status wasn't updated, try updating it separately
   if (verificationCase[0]?.status !== "resolved") {
@@ -576,25 +541,6 @@ export async function acceptJudgement(user: AppUser, caseId: string) {
       .set({ status: "resolved" })
       .where(eq(cases.id, caseId))
       .returning();
-    
-    console.log('Separate status update result:', { 
-      updatedCount: statusUpdate.length,
-      newStatus: statusUpdate[0]?.status 
-    });
-
-    // Verify again immediately
-    const immediateVerification = await db.select().from(cases).where(eq(cases.id, caseId)).limit(1);
-    console.log('Immediate verification after separate update:', { 
-      status: immediateVerification[0]?.status 
-    });
-
-    // Wait and check one more time
-    await new Promise(resolve => setTimeout(resolve, 500));
-    const finalVerification = await db.select().from(cases).where(eq(cases.id, caseId)).limit(1);
-    console.log('Final verification (500ms after separate update):', { 
-      status: finalVerification[0]?.status,
-      updatedAt: finalVerification[0]?.updatedAt 
-    });
   }
 
   await createCaseActivity(
@@ -605,7 +551,6 @@ export async function acceptJudgement(user: AppUser, caseId: string) {
     user?.fullName || user?.email || "Unknown user",
   );
 
-  console.log('Activity log created, returning updated case');
   return updated[0];
 }
 
