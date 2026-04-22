@@ -757,7 +757,7 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
 
       {activeTab === "audit" ? (
         <div id="panel-audit" role="tabpanel" aria-labelledby="tab-audit" className="rounded-[28px] border border-slate-200 bg-white p-6">
-          <AuditPanel caseId={detail.case.id} audits={detail.audits || []} />
+          <AuditPanel caseId={detail.case.id} audits={detail.audits || []} userRole={userRole} />
         </div>
       ) : null}
 
