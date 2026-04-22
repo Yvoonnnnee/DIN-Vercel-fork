@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 
-type WitnessVerifyStatusProps = {
+type InviteeVerifyStatusProps = {
   token: string;
   initialStatus: string;
   entityType: "witness" | "consultant";
 };
 
-export function WitnessVerifyStatus({ token, initialStatus, entityType }: WitnessVerifyStatusProps) {
+export function InviteeVerifyStatus({ token, initialStatus, entityType }: InviteeVerifyStatusProps) {
   const [status, setStatus] = useState(initialStatus);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { consultants, kycVerifications } from "@/db/schema";
-import { WitnessVerifyStatus } from "@/components/witness-verify-status";
+import { InviteeVerifyStatus } from "@/components/invitee-verify-status";
 
 type PageProps = {
   params: Promise<{ token: string }>;
@@ -36,5 +36,5 @@ export default async function ConsultantVerifyResultPage({ params }: PageProps) 
     initialStatus = kycRows[0]?.status || "not_started";
   }
 
-  return <WitnessVerifyStatus token={token} initialStatus={initialStatus} entityType="consultant" />;
+  return <InviteeVerifyStatus token={token} initialStatus={initialStatus} entityType="consultant" />;
 }
