@@ -41,8 +41,3 @@ It intentionally does not include:
 - Stripe flows
 - AI prompts
 - data import scripts
-
-## Local DB
-```sh
-docker run --name KYC-postgres -e POSTGRES_PASSWORD=admin -p 5432:5432 -d postgres
-```
