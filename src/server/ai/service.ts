@@ -71,8 +71,9 @@ export async function generateStructuredObject<TSchema extends z.ZodTypeAny>(
   prompt: string,
   schema: TSchema,
 ) {
+  const model = await getModel();
   const result = await generateObject({
-    model: await getModel(),
+    model,
     prompt,
     schema,
     // Explicitly avoid temperature for Claude 4 compatibility

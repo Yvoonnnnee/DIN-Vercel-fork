@@ -13,6 +13,7 @@ import { ExistingHearings } from "./existing-hearings";
 import { AITestingInterface } from "@/components/ai-testing-interface";
 import { VoiceTestPanel } from "@/components/voice-test-panel";
 import { JudgementPanel } from "@/components/judgement-panel";
+import { LivekitAnamPanel } from "@/components/livekit-anam-panel";
 import { getLawyerById } from "@/lib/lawyers";
 import { formatCurrency, formatDateTime } from "@/server/format";
 
@@ -850,6 +851,9 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
           <div className="rounded-[28px] border border-slate-200 bg-white p-6">
             <HearingScheduler caseId={detail.case.id} caseTitle={detail.case.title} />
           </div>
+
+          {/* 1:1 AI Judge Session */}
+          <LivekitAnamPanel caseId={detail.case.id} caseTitle={detail.case.title} />
 
           {/* AI Testing Interface */}
           <div className="rounded-[28px] border border-slate-200 bg-white p-6">

@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
-import { ensureAppUser } from "@/server/auth/provision";
-import { getCaseDetail } from "@/server/cases/queries";
-import { getDb } from "@/db/client";
-import { cases, lawyerConversations } from "@/db/schema";
+import { ensureAppUser } from "../../../../../src/server/auth/provision";
+import { getCaseDetail } from "../../../../../src/server/cases/queries";
+import { getDb } from "../../../../../src/db/client";
+import { cases, lawyerConversations } from "../../../../../src/db/schema";
 import { eq } from "drizzle-orm";
-import { CaseEditor } from "@/components/case-editor";
+import { CaseEditor } from "../../../../../src/components/case-editor";
 
 type EditCasePageProps = {
   params: Promise<{ caseId: string }>;
