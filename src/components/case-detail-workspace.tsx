@@ -80,6 +80,7 @@ type CaseDetailWorkspaceProps = {
     } | null;
     todoItems: Array<{ key: string; label: string }>;
     progressStages: Array<{ key: string; label: string; active: boolean }>;
+    respondentNotified: boolean;
   };
   userRole?: string;
   user?: any;
@@ -152,7 +153,7 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
     { key: "claims", label: "Submit claim(s)", completed: (detail.case.claimantClaims?.length || 0) + (detail.case.respondentClaims?.length || 0) > 0 },
     { key: "evidence", label: "Submit evidence", completed: detail.evidence.length > 0 },
     { key: "audit", label: "Request audit", completed: detail.audits.length > 0 },
-    { key: "notify", label: "Notify respondent", completed: detail.activities.some(activity => activity.title === "Defendant notified") },
+    { key: "notify", label: "Notify respondent", completed: detail.respondentNotified },
     { key: "witnesses", label: "Add witnesses", completed: detail.witnesses.length > 0 },
     { key: "consultants", label: "Add consultants", completed: detail.consultants.length > 0 },
     { key: "expertise", label: "Add expertise request", completed: detail.expertiseRequests.length > 0 },
@@ -200,11 +201,6 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
 
   // Update todo items when database data changes
   React.useEffect(() => {
-    // Check if respondent was notified via activities
-    const respondentNotified = detail.activities.some(activity => 
-      activity.title === "Defendant notified"
-    );
-    
     // Check hearing status from hearings data
     const hearingScheduled = detail.hearings.length > 0;
     const hearingCompleted = detail.hearings.some(h => h.status === "completed");
@@ -214,7 +210,7 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
       { key: "claims", label: "Submit claim(s)", completed: (detail.case.claimantClaims?.length || 0) + (detail.case.respondentClaims?.length || 0) > 0 },
       { key: "evidence", label: "Submit evidence", completed: detail.evidence.length > 0 },
       { key: "audit", label: "Request audit", completed: detail.audits.length > 0 },
-      { key: "notify", label: "Notify respondent", completed: respondentNotified },
+      { key: "notify", label: "Notify respondent", completed: detail.respondentNotified },
       { key: "witnesses", label: "Add witnesses", completed: detail.witnesses.length > 0 },
       { key: "consultants", label: "Add consultants", completed: detail.consultants.length > 0 },
       { key: "expertise", label: "Add expertise request", completed: detail.expertiseRequests.length > 0 },

@@ -299,7 +299,7 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     return null;
   }
 
-  const [activityRows, evidenceRows, witnessRows, consultantRows, expertiseRows, messageRows, conversations, auditRows] = await Promise.all([
+  const [activityRows, evidenceRows, witnessRows, consultantRows, expertiseRows, messageRows, conversations, auditRows, notificationCheck] = await Promise.all([
     db
       .select()
       .from(caseActivities)
@@ -325,6 +325,13 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
           .limit(1)
       : Promise.resolve([]),
     db.select().from(caseAudits).where(eq(caseAudits.caseId, caseId)).orderBy(desc(caseAudits.createdAt)),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(caseActivities)
+      .where(and(
+        eq(caseActivities.caseId, caseId),
+        eq(caseActivities.title, "Defendant notified")
+      )),
   ]);
 
   // Check if case has any hearings
@@ -340,13 +347,15 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     caseItem.status = smartStatus; // Update local reference
   }
 
+  const respondentNotified = notificationCheck[0]?.count > 0;
+
   const todoItems = [
     !caseItem.claimantLawyerKey ? { key: "claimant-lawyer", label: "Claimant must choose a lawyer" } : null,
     !caseItem.respondentLawyerKey && caseItem.respondentEmail ? { key: "respondent-lawyer", label: "Respondent must choose a lawyer" } : null,
     caseItem.status === "draft" ? { key: "file-case", label: "File the case to start the workflow" } : null,
     evidenceRows.length === 0 ? { key: "add-evidence", label: "Add initial evidence" } : null,
     witnessRows.length === 0 ? { key: "add-witness", label: "Add witnesses if relevant" } : null,
-    !activityRows.some((item) => item.title === "Defendant notified") && caseItem.status !== "draft"
+    !respondentNotified && caseItem.status !== "draft"
       ? { key: "notify-respondent", label: "Notify the respondent" }
       : null,
     caseItem.status === "filed" && !hasHearing
@@ -356,7 +365,7 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
 
   const progressStages = [
     { key: "filed", label: "Filed", active: caseItem.status !== "draft" },
-    { key: "notified", label: "Respondent notified", active: activityRows.some((item) => item.title === "Defendant notified") },
+    { key: "notified", label: "Respondent notified", active: respondentNotified },
     { key: "evidence", label: "Evidence gathering", active: evidenceRows.length > 0 },
     { key: "hearing", label: "Hearing scheduled", active: caseItem.status === "hearing_scheduled" || hasHearing },
     { key: "decision", label: "Decision phase", active: ["in_arbitration", "awaiting_decision", "resolved"].includes(caseItem.status) },
@@ -375,6 +384,7 @@ export async function getCaseDetail(user: AppUser, caseId: string) {
     conversation: conversations[0] ?? null,
     audits: auditRows,
     hearings: hearingRows,
+    respondentNotified,
     todoItems,
     progressStages,
     summaryCards: [
