@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { getDb } from "@/db/client";
 import { cases } from "@/db/schema";
 import type { ProvisionedAppUser } from "@/server/auth/provision";
@@ -7,12 +8,16 @@ import { isDatabaseConfigured } from "@/server/runtime";
 
 export const IMPERSONATION_COOKIE = "admin_impersonation";
 
-export type ImpersonationRole = "claimant" | "respondent";
+const impersonationRoleSchema = z.enum(["claimant", "respondent"]);
 
-export type ImpersonationCookie = {
-  caseId: string;
-  role: ImpersonationRole;
-};
+const impersonationCookieSchema = z.object({
+  caseId: z.string().min(1),
+  role: impersonationRoleSchema,
+});
+
+export type ImpersonationRole = z.infer<typeof impersonationRoleSchema>;
+
+export type ImpersonationCookie = z.infer<typeof impersonationCookieSchema>;
 
 export type ImpersonationContext = {
   caseId: string;
@@ -32,11 +37,8 @@ export async function readImpersonationCookie(): Promise<ImpersonationCookie | n
     return null;
   }
   try {
-    const parsed = JSON.parse(raw) as Partial<ImpersonationCookie>;
-    if (!parsed.caseId || (parsed.role !== "claimant" && parsed.role !== "respondent")) {
-      return null;
-    }
-    return { caseId: parsed.caseId, role: parsed.role };
+    const result = impersonationCookieSchema.safeParse(JSON.parse(raw));
+    return result.success ? result.data : null;
   } catch {
     return null;
   }
