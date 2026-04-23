@@ -2,8 +2,9 @@ import { eq, desc } from 'drizzle-orm';
 import { getDb } from '@/db/client';
 import { cases, evidence, witnesses, consultants, simulations } from '@/db/schema';
 import { runCourtSimulation, type CourtSimulationResult, type CourtTranscriptEntry } from '@/lib/court-simulation';
-import { getAuthorizedCase, createCaseActivity } from '@/server/cases/mutations';
+import { createCaseActivity } from '@/server/cases/mutations';
 import { getCaseDetail } from '@/server/cases/queries';
+import { getImpersonationContext } from '@/server/auth/impersonation';
 import type { ProvisionedAppUser } from '@/server/auth/provision';
 
 interface RunnerOptions {
@@ -114,6 +115,8 @@ export async function runAndPersistCourtSimulation(
     throw new Error('Case not found');
   }
 
+  const impersonation = await getImpersonationContext(user, caseId);
+
   // Check if simulation is already running or recently completed
   const existingCases = await db
     .select({
@@ -203,13 +206,12 @@ export async function runAndPersistCourtSimulation(
       .returning();
 
     // Create activity log
-    const actorName = user?.fullName || user?.email || 'Unknown user';
     await createCaseActivity(
       caseId,
       'decision',
       'Court simulation completed',
       `${simulation.outcome.type} reached: ${simulation.outcome.summary}`,
-      actorName,
+      { user, impersonation },
     );
 
     return simulation;
@@ -264,13 +266,12 @@ export async function runAndPersistCourtSimulation(
     .returning();
 
   // Create activity log
-  const actorName = user?.fullName || user?.email || 'Unknown user';
   await createCaseActivity(
     caseId,
     'decision',
     'Court simulation completed',
     `${simulation.outcome.type} reached: ${simulation.outcome.summary}`,
-    actorName,
+    { user, impersonation },
   );
 
   return simulation;
