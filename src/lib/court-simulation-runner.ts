@@ -2,9 +2,8 @@ import { eq, desc } from 'drizzle-orm';
 import { getDb } from '@/db/client';
 import { cases, evidence, witnesses, consultants, simulations } from '@/db/schema';
 import { runCourtSimulation, type CourtSimulationResult, type CourtTranscriptEntry } from '@/lib/court-simulation';
-import { createCaseActivity } from '@/server/cases/mutations';
+import { createCaseActivity, getAuthorizedCase } from '@/server/cases/mutations';
 import { getCaseDetail } from '@/server/cases/queries';
-import { getImpersonationContext } from '@/server/auth/impersonation';
 import type { ProvisionedAppUser } from '@/server/auth/provision';
 
 interface RunnerOptions {
@@ -100,22 +99,20 @@ export async function runAndPersistCourtSimulation(
   caseId: string,
   options: RunnerOptions = {}
 ): Promise<CourtSimulationResult> {
-  // Ensure user is authenticated and has admin/moderator role
-  if (!user || (user.role !== 'moderator' && user.role !== 'admin')) {
+  // Route through getAuthorizedCase so the effective role honors
+  // impersonation: an admin impersonating a party must NOT pass the
+  // moderator gate here.
+  const authorized = await getAuthorizedCase(user, caseId);
+  if (!authorized) {
+    throw new Error('Case not found');
+  }
+  if (authorized.role !== 'moderator') {
     throw new Error('Moderator access required');
   }
 
-  // For admins and moderators, we can bypass the case association check
-  // but we still need to verify the case exists
   const db = getDb();
-  const caseRows = await db.select().from(cases).where(eq(cases.id, caseId)).limit(1);
-  const caseItem = caseRows[0];
-
-  if (!caseItem) {
-    throw new Error('Case not found');
-  }
-
-  const impersonation = await getImpersonationContext(user, caseId);
+  const caseItem = authorized.case;
+  const impersonation = authorized.impersonation;
 
   // Check if simulation is already running or recently completed
   const existingCases = await db
@@ -145,7 +142,7 @@ export async function runAndPersistCourtSimulation(
 
     const minimalDetail = {
       case: caseItem,
-      role: user.role as 'admin' | 'moderator',
+      role: user!.role as 'admin' | 'moderator',
       evidence: evidenceRows,
       witnesses: witnessRows,
       consultants: consultantRows,
@@ -342,8 +339,10 @@ function convertSimulationOutcomeToJudgement(outcome: any): Record<string, any> 
 }
 
 export async function getStoredSimulation(user: ProvisionedAppUser | null, caseId: string): Promise<CourtSimulationResult | null> {
-  // Ensure user is authenticated and has admin/moderator role
-  if (!user || (user.role !== 'moderator' && user.role !== 'admin')) {
+  // Route through getAuthorizedCase so an admin impersonating a party
+  // cannot read simulation results as themselves.
+  const authorized = await getAuthorizedCase(user, caseId);
+  if (!authorized || authorized.role !== 'moderator') {
     throw new Error('Forbidden');
   }
 
