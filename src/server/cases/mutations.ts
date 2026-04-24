@@ -7,6 +7,8 @@ import {
   consultants,
   evidence,
   expertiseRequests,
+  kycVerifications,
+  users,
   witnesses,
   hearings,
 } from "@/db/schema";
@@ -25,13 +27,43 @@ import {
 } from "@/contracts/cases";
 import { spendForAction } from "@/server/billing/service";
 import { assertAppUserActive } from "@/server/auth/provision";
+import { isUserKycVerified } from "@/server/identity/service";
 import { sendRespondentNotifyEmail } from "@/server/email/respondent-notify";
+import { sendWitnessInvitationEmail, sendConsultantInvitationEmail } from "@/server/email/witness-notify";
 import { randomUUID } from "crypto";
+import { nanoid } from "nanoid";
 
 type AppUser = ProvisionedAppUser | null;
 
 function normalizeEmail(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
+}
+
+async function getVerifiedClaimantEnrichment(userId: string | null | undefined) {
+  if (!userId) return null;
+  const db = getDb();
+  const rows = await db
+    .select({
+      kycId: users.kycVerificationId,
+      kycStatus: kycVerifications.status,
+      firstName: kycVerifications.verifiedFirstName,
+      lastName: kycVerifications.verifiedLastName,
+    })
+    .from(users)
+    .leftJoin(kycVerifications, eq(users.kycVerificationId, kycVerifications.id))
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return null;
+  if (row.kycStatus !== "verified") {
+    return { kycVerificationId: row.kycId ?? null, verifiedName: null as string | null };
+  }
+  const verifiedName = `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim();
+  return {
+    kycVerificationId: row.kycId ?? null,
+    verifiedName: verifiedName.length > 0 ? verifiedName : null,
+  };
 }
 
 export async function getAuthorizedCase(user: AppUser, caseId: string) {
@@ -100,6 +132,15 @@ export async function createCase(user: AppUser, payload: unknown) {
   const parsed = caseMutationSchema.parse(payload);
   const db = getDb();
 
+  // KYC gate: if trying to file without verification, persist as draft so the
+  // user can resume after completing verification, then signal the gate.
+  const needsKycGate =
+    parsed.saveMode === "file" && user.id && !(await isUserKycVerified(user.id));
+
+  const saveMode = needsKycGate ? "draft" : parsed.saveMode;
+  const enrichment = await getVerifiedClaimantEnrichment(user?.id);
+  const verifiedName = enrichment?.verifiedName ?? null;
+
   const inserted = await db
     .insert(cases)
     .values({
@@ -108,14 +149,19 @@ export async function createCase(user: AppUser, payload: unknown) {
       description: parsed.description,
       category: parsed.category,
       priority: parsed.priority,
-      status: parsed.saveMode === "file" ? "filed" : "draft",
-      filingDate: parsed.saveMode === "file" ? new Date() : null,
+      status: saveMode === "file" ? "filed" : "draft",
+      filingDate: saveMode === "file" ? new Date() : null,
       claimantName: parsed.claimantName,
       claimantEmail: parsed.claimantEmail,
       claimantPhone: parsed.claimantPhone || null,
+      claimantUserId: user?.id ?? null,
+      claimantKycVerificationId: enrichment?.kycVerificationId ?? null,
+      claimantNameVerified: verifiedName,
       respondentName: parsed.respondentName,
       respondentEmail: parsed.respondentEmail,
       respondentPhone: parsed.respondentPhone || null,
+      respondentNameAlleged: parsed.respondentName,
+      respondentEmailAlleged: parsed.respondentEmail,
       claimAmount: parsed.claimAmount?.toString(),
       currency: parsed.currency,
       claimantClaims: parsed.claimantClaims,
@@ -127,11 +173,27 @@ export async function createCase(user: AppUser, payload: unknown) {
   const caseItem = inserted[0];
   await createCaseActivity(
     caseItem.id,
-    parsed.saveMode === "file" ? "filing" : "note",
-    parsed.saveMode === "file" ? "Case filed" : "Draft created",
+    saveMode === "file" ? "filing" : "note",
+    saveMode === "file" ? "Case filed" : "Draft created",
     parsed.description,
     user.fullName || user.email,
   );
+
+  if (saveMode === "file" && verifiedName) {
+    await createCaseActivity(
+      caseItem.id,
+      "identity_verified",
+      "Claimant identity verified",
+      `Filed by verified user ${verifiedName}.`,
+      "system",
+    );
+  }
+
+  if (needsKycGate) {
+    const err = new Error("KYC_REQUIRED") as Error & { draftCaseId?: string };
+    err.draftCaseId = caseItem.id;
+    throw err;
+  }
 
   return caseItem;
 }
@@ -143,8 +205,23 @@ export async function updateCase(user: AppUser, caseId: string, payload: unknown
   }
 
   const parsed = caseMutationSchema.parse(payload);
+
+  // KYC gate: if trying to file without verification, save the edits as a draft
+  // so nothing is lost, then signal the gate.
+  const needsKycGate =
+    parsed.saveMode === "file" && !!user?.id && !(await isUserKycVerified(user.id));
+
   const db = getDb();
-  const status = parsed.saveMode === "file" ? "filed" : authorized.case.status;
+  const effectiveSaveMode = needsKycGate ? "draft" : parsed.saveMode;
+  const status = effectiveSaveMode === "file" ? "filed" : authorized.case.status;
+
+  const actingUserIsClaimant =
+    !!user?.id && authorized.case.claimantUserId === user.id;
+  const enrichment = actingUserIsClaimant
+    ? await getVerifiedClaimantEnrichment(user!.id)
+    : null;
+  const verifiedName = enrichment?.verifiedName ?? null;
+  const isTransitioningToFiled = status === "filed" && authorized.case.status !== "filed";
 
   const updated = await db
     .update(cases)
@@ -159,9 +236,14 @@ export async function updateCase(user: AppUser, caseId: string, payload: unknown
       claimantName: parsed.claimantName,
       claimantEmail: parsed.claimantEmail,
       claimantPhone: parsed.claimantPhone || null,
+      claimantUserId: authorized.case.claimantUserId ?? user?.id ?? null,
+      claimantKycVerificationId: enrichment?.kycVerificationId ?? authorized.case.claimantKycVerificationId ?? null,
+      claimantNameVerified: verifiedName ?? authorized.case.claimantNameVerified ?? null,
       respondentName: parsed.respondentName,
       respondentEmail: parsed.respondentEmail,
       respondentPhone: parsed.respondentPhone || null,
+      respondentNameAlleged: authorized.case.respondentNameAlleged ?? parsed.respondentName,
+      respondentEmailAlleged: authorized.case.respondentEmailAlleged ?? parsed.respondentEmail,
       claimAmount: parsed.claimAmount?.toString(),
       currency: parsed.currency,
       claimantClaims: parsed.claimantClaims,
@@ -178,6 +260,22 @@ export async function updateCase(user: AppUser, caseId: string, payload: unknown
     "Case details updated in the rewrite workspace.",
     user?.fullName || user?.email || "Unknown user",
   );
+
+  if (isTransitioningToFiled && verifiedName) {
+    await createCaseActivity(
+      caseId,
+      "identity_verified",
+      "Claimant identity verified",
+      `Filed by verified user ${verifiedName}.`,
+      "system",
+    );
+  }
+
+  if (needsKycGate) {
+    const err = new Error("KYC_REQUIRED") as Error & { draftCaseId?: string };
+    err.draftCaseId = caseId;
+    throw err;
+  }
 
   return updated[0];
 }
@@ -256,18 +354,22 @@ export async function createWitness(user: AppUser, caseId: string, payload: unkn
   const spendResult = await spendForAction(user, {
     actionCode: "witness_create",
     caseId,
-    idempotencyKey: `witness:${caseId}:${parsed.fullName}:${parsed.email || ""}`,
+    idempotencyKey: `witness:${caseId}:${parsed.fullName}:${parsed.email}`,
     metadata: { fullName: parsed.fullName },
   });
   if (!spendResult.success) {
     throw new Error(spendResult.error);
   }
+
+  const token = nanoid(22);
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
   const inserted = await db
     .insert(witnesses)
     .values({
       caseId,
       fullName: parsed.fullName,
-      email: parsed.email || null,
+      email: parsed.email,
       phone: parsed.phone || null,
       relationship: parsed.relationship || null,
       statement: parsed.statement || null,
@@ -276,10 +378,31 @@ export async function createWitness(user: AppUser, caseId: string, payload: unkn
       calledBy: authorized.role === "moderator" ? "arbitrator" : authorized.role,
       notes: parsed.notes || null,
       status: "pending",
+      invitationToken: token,
+      invitationTokenExpiresAt: expiresAt,
     })
     .returning();
 
   await createCaseActivity(caseId, "witness_added", "Witness added", parsed.fullName, user?.fullName || user?.email || "Unknown user");
+
+  // Send invitation email
+  const calledBy = authorized.role === "moderator" ? "arbitrator" : authorized.role;
+  const calledByPartyName =
+    calledBy === "claimant"
+      ? authorized.case.claimantName || "the claimant"
+      : calledBy === "respondent"
+        ? authorized.case.respondentName || "the respondent"
+        : "the arbitrator";
+
+  try {
+    await sendWitnessInvitationEmail(parsed.email, {
+      witnessName: parsed.fullName,
+      calledByPartyName,
+      token,
+    });
+  } catch (err) {
+    console.error("Failed to send witness invitation email:", err);
+  }
 
   return inserted[0];
 }
@@ -305,18 +428,22 @@ export async function createConsultant(user: AppUser, caseId: string, payload: u
   const spendResult = await spendForAction(user, {
     actionCode: "consultant_create",
     caseId,
-    idempotencyKey: `consultant:${caseId}:${parsed.fullName}:${parsed.email || ""}`,
+    idempotencyKey: `consultant:${caseId}:${parsed.fullName}:${parsed.email}`,
     metadata: { fullName: parsed.fullName },
   });
   if (!spendResult.success) {
     throw new Error(spendResult.error);
   }
+
+  const token = nanoid(22);
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
   const inserted = await db
     .insert(consultants)
     .values({
       caseId,
       fullName: parsed.fullName,
-      email: parsed.email || null,
+      email: parsed.email,
       phone: parsed.phone || null,
       company: parsed.company || null,
       expertise: parsed.expertise || null,
@@ -327,10 +454,31 @@ export async function createConsultant(user: AppUser, caseId: string, payload: u
       calledBy: authorized.role === "moderator" ? "arbitrator" : authorized.role,
       notes: parsed.notes || null,
       status: "pending",
+      invitationToken: token,
+      invitationTokenExpiresAt: expiresAt,
     })
     .returning();
 
   await createCaseActivity(caseId, "note", "Consultant added", parsed.fullName, user?.fullName || user?.email || "Unknown user");
+
+  // Send invitation email
+  const calledBy = authorized.role === "moderator" ? "arbitrator" : authorized.role;
+  const calledByPartyName =
+    calledBy === "claimant"
+      ? authorized.case.claimantName || "the claimant"
+      : calledBy === "respondent"
+        ? authorized.case.respondentName || "the respondent"
+        : "the arbitrator";
+
+  try {
+    await sendConsultantInvitationEmail(parsed.email, {
+      consultantName: parsed.fullName,
+      calledByPartyName,
+      token,
+    });
+  } catch (err) {
+    console.error("Failed to send consultant invitation email:", err);
+  }
 
   return inserted[0];
 }
@@ -343,6 +491,80 @@ export async function deleteConsultant(user: AppUser, caseId: string, recordId: 
 
   const db = getDb();
   await db.delete(consultants).where(and(eq(consultants.id, recordId), eq(consultants.caseId, caseId)));
+}
+
+export async function resendWitnessInvitation(user: AppUser, caseId: string, witnessId: string) {
+  const authorized = await getAuthorizedCase(user, caseId);
+  if (!authorized || (authorized.role === "moderator" && user?.role !== "admin")) {
+    throw new Error("Forbidden");
+  }
+
+  const db = getDb();
+  const rows = await db.select().from(witnesses).where(and(eq(witnesses.id, witnessId), eq(witnesses.caseId, caseId))).limit(1);
+  const witness = rows[0];
+  if (!witness) {
+    throw new Error("Witness not found");
+  }
+
+  const token = nanoid(22);
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  await db
+    .update(witnesses)
+    .set({ invitationToken: token, invitationTokenExpiresAt: expiresAt })
+    .where(eq(witnesses.id, witnessId));
+
+  const calledByPartyName =
+    witness.calledBy === "claimant"
+      ? authorized.case.claimantName || "the claimant"
+      : witness.calledBy === "respondent"
+        ? authorized.case.respondentName || "the respondent"
+        : "the arbitrator";
+
+  await sendWitnessInvitationEmail(witness.email, {
+    witnessName: witness.fullName,
+    calledByPartyName,
+    token,
+  });
+
+  return { success: true };
+}
+
+export async function resendConsultantInvitation(user: AppUser, caseId: string, consultantId: string) {
+  const authorized = await getAuthorizedCase(user, caseId);
+  if (!authorized || (authorized.role === "moderator" && user?.role !== "admin")) {
+    throw new Error("Forbidden");
+  }
+
+  const db = getDb();
+  const rows = await db.select().from(consultants).where(and(eq(consultants.id, consultantId), eq(consultants.caseId, caseId))).limit(1);
+  const consultant = rows[0];
+  if (!consultant) {
+    throw new Error("Consultant not found");
+  }
+
+  const token = nanoid(22);
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  await db
+    .update(consultants)
+    .set({ invitationToken: token, invitationTokenExpiresAt: expiresAt })
+    .where(eq(consultants.id, consultantId));
+
+  const calledByPartyName =
+    consultant.calledBy === "claimant"
+      ? authorized.case.claimantName || "the claimant"
+      : consultant.calledBy === "respondent"
+        ? authorized.case.respondentName || "the respondent"
+        : "the arbitrator";
+
+  await sendConsultantInvitationEmail(consultant.email, {
+    consultantName: consultant.fullName,
+    calledByPartyName,
+    token,
+  });
+
+  return { success: true };
 }
 
 export async function createExpertise(user: AppUser, caseId: string, payload: unknown) {
