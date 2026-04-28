@@ -125,12 +125,10 @@ export async function createCalendarEvent(params: CreateMeetingParams): Promise<
             summary: params.title.trim(),
             description: params.description || `Court Hearing for Case ID: ${params.caseId}`,
             start: {
-              dateTime: startTime.toISOString(),
-              timeZone: 'UTC'
+              dateTime: startTime.toISOString()
             },
             end: {
-              dateTime: endTime.toISOString(),
-              timeZone: 'UTC'
+              dateTime: endTime.toISOString()
             },
             attendees: attendees.length > 0 ? attendees : undefined,
             reminders: {
@@ -208,12 +206,10 @@ export async function createCalendarEvent(params: CreateMeetingParams): Promise<
             }
           },
           start: {
-            dateTime: startTime.toISOString(),
-            timeZone: 'UTC'
+            dateTime: startTime.toISOString()
           },
           end: {
-            dateTime: endTime.toISOString(),
-            timeZone: 'UTC'
+            dateTime: endTime.toISOString()
           },
           attendees: attendees.length > 0 ? attendees : undefined,
           reminders: {
