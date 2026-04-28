@@ -102,7 +102,24 @@ export const storeTokens = async (userId: string, tokens: any) => {
 
 // Get stored tokens
 export const getStoredTokens = async (userId: string) => {
-  // Try file storage first
+  // First try refresh token from environment variables (for production/Vercel)
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+  
+  if (refreshToken) {
+    // Generate fresh access token using refresh token
+    try {
+      const freshTokens = await refreshTokens(refreshToken);
+      return {
+        ...freshTokens,
+        refresh_token: refreshToken // Keep the original refresh token
+      };
+    } catch (error) {
+      console.error('Failed to refresh token from environment:', error);
+      return null;
+    }
+  }
+  
+  // Fall back to file storage (for local development)
   try {
     const fs = await import('fs/promises');
     const path = await import('path');
@@ -110,7 +127,19 @@ export const getStoredTokens = async (userId: string) => {
     const tokenFile = path.join(process.cwd(), '.tokens', `${userId}.json`);
     const tokenData = await fs.readFile(tokenFile, 'utf-8');
     
-    return JSON.parse(tokenData);
+    const tokens = JSON.parse(tokenData);
+    
+    // Check if tokens need refresh
+    if (tokens.expiry_date && Date.now() > tokens.expiry_date) {
+      if (tokens.refresh_token) {
+        const freshTokens = await refreshTokens(tokens.refresh_token);
+        return freshTokens;
+      } else {
+        throw new Error('Token expired and no refresh token available');
+      }
+    }
+    
+    return tokens;
   } catch (error) {
     // Fallback to memory storage
     if (!global.oauthTokens) {
