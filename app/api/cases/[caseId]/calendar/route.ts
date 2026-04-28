@@ -55,7 +55,7 @@ export async function POST(
       caseId,
       startTime: startTimeDate,
       duration: durationMinutes,
-      description: description || `Court hearing scheduled for case: ${caseDetail.case.title}\n\nJoin the hearing at: ${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/cases/${caseId}`,
+      description: description || `Court hearing scheduled for case: ${caseDetail.case.title}\n\nJoin the hearing at: ${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/cases/${caseId}`,
       attendees,
       claimantEmail: caseDetail.case.claimantEmail || undefined,
       respondentEmail: caseDetail.case.respondentEmail || undefined
@@ -69,7 +69,7 @@ export async function POST(
       // Update existing hearing
       hearing = await db.update(hearings)
         .set({
-          meetingUrl: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/cases/${caseId}`,
+          meetingUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/cases/${caseId}`,
           meetingId: eventData.calendarEventId,
           meetingPlatform: 'calendar',
           updatedAt: new Date(),
@@ -83,7 +83,7 @@ export async function POST(
         caseId,
         scheduledStartTime: startTimeDate,
         scheduledEndTime: endTime,
-        meetingUrl: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/cases/${caseId}`,
+        meetingUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/cases/${caseId}`,
         meetingId: eventData.calendarEventId,
         meetingPlatform: 'calendar',
         status: 'scheduled',
@@ -105,7 +105,7 @@ export async function POST(
         endTime: eventData.endTime,
         calendarEventId: eventData.calendarEventId,
         hearingId: isUpdate ? hearingId : hearing.id,
-        caseUrl: `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/cases/${caseId}`,
+        caseUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/cases/${caseId}`,
         settings: {
           calendarEvent: true,
           notificationsEnabled: true
