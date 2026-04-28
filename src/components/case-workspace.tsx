@@ -430,21 +430,6 @@ export function CaseWorkspace(props: CaseWorkspaceProps) {
                     Resend
                   </button>
                 ) : null}
-                {kind !== "messages" ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      startTransition(() =>
-                        remove(
-                          `/api/cases/${props.caseId}/${kind === "expertise" ? "expertise" : kind}/${record.id}`,
-                        ),
-                      )
-                    }
-                    className="text-sm font-medium text-rose-600 hover:text-rose-700"
-                  >
-                    Delete
-                  </button>
-                ) : null}
               </div>
             </div>
           );
