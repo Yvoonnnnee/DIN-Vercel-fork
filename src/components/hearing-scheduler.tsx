@@ -32,7 +32,7 @@ export function HearingScheduler({ caseId, caseTitle }: HearingSchedulerProps) {
       const meetingData = {
         title: `Court Hearing - ${caseTitle}`,
         type: 'hearing',
-        startTime: hearingDate,
+        startTime: new Date(hearingDate).toISOString(),
         duration: parseInt(duration),
         description: `Court hearing scheduled for case: ${caseTitle}\n\nJoin the hearing at: ${typeof window !== 'undefined' ? window.location.origin : ''}/cases/${caseId}`
       };
