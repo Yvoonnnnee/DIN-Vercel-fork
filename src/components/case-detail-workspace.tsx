@@ -11,7 +11,7 @@ import { ArbitrationPanel } from "@/components/arbitration-panel";
 import { HearingScheduler } from "@/components/hearing-scheduler";
 import { ExistingHearings } from "./existing-hearings";
 import { JudgementPanel } from "@/components/judgement-panel";
-import { LivekitAnamPanel } from "@/components/livekit-anam-panel";
+import { NewAnamVideoPanel } from "@/components/new-anam-video-panel";
 import { AdminImpersonationBanner } from "@/components/admin-impersonation-banner";
 import { getLawyerById } from "@/lib/lawyers";
 import { formatCurrency, formatDateTime } from "@/server/format";
@@ -862,7 +862,7 @@ export function CaseDetailWorkspace({ detail, userRole, user }: CaseDetailWorksp
         <div id="panel-hearing" role="tabpanel" aria-labelledby="tab-hearing" className="space-y-6">
           {/* 1:1 AI Judge Session */}
           <div className="rounded-[28px] border border-slate-200 bg-white p-6">
-            <LivekitAnamPanel caseId={detail.case.id} caseTitle={detail.case.title} />
+            <NewAnamVideoPanel caseId={detail.case.id} caseTitle={detail.case.title} />
           </div>
 
           {/* Existing Hearings */}
