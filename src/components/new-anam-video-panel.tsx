@@ -26,6 +26,7 @@ export function NewAnamVideoPanel({ caseId, caseTitle }: NewAnamVideoPanelProps)
   const [chatInput, setChatInput] = useState('');
   const [isJudgeConnected, setIsJudgeConnected] = useState(false);
   const [anamClient, setAnamClient] = useState<any>(null);
+  const [sessionType, setSessionType] = useState<'test' | 'official' | null>(null);
   
   const userVideoRef = useRef<HTMLVideoElement>(null);
   const judgeVideoRef = useRef<HTMLVideoElement>(null);
@@ -157,8 +158,9 @@ export function NewAnamVideoPanel({ caseId, caseTitle }: NewAnamVideoPanelProps)
     };
   }, [sessionToken, isInSession, interviewId]);
 
-  const handleStartButtonClick = () => {
-    console.log('Button clicked, setting shouldStartSession to true');
+  const handleStartButtonClick = (type: 'test' | 'official') => {
+    console.log('Button clicked, setting shouldStartSession to true with type:', type);
+    setSessionType(type);
     setShouldStartSession(true);
   };
 
@@ -298,6 +300,7 @@ export function NewAnamVideoPanel({ caseId, caseTitle }: NewAnamVideoPanelProps)
     setIsJudgeConnected(false);
     setChatMessages([]);
     setError('');
+    setSessionType(null);
     console.log('Session stopped');
   };
 
@@ -342,7 +345,11 @@ export function NewAnamVideoPanel({ caseId, caseTitle }: NewAnamVideoPanelProps)
       <div className="space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-ink">{isInSession ? 'Live Session with AI Judge' : '1:1 AI Judge Session'}</h3>
+          <h3 className="text-lg font-semibold text-ink">
+            {isInSession 
+              ? `Live ${sessionType === 'official' ? 'Official' : 'Test'} Session with AI Judge` 
+              : '1:1 AI Judge Session'}
+          </h3>
           {isInSession && (
             <button
               onClick={stopSession}
@@ -363,13 +370,25 @@ export function NewAnamVideoPanel({ caseId, caseTitle }: NewAnamVideoPanelProps)
               </div>
             )}
             
-            <button
-              onClick={handleStartButtonClick}
-              disabled={isLoading}
-              className="bg-ink text-white px-6 py-3 rounded-full font-medium hover:bg-ink/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isLoading ? 'Starting Session...' : 'Enter 1:1 with Judge'}
-            </button>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              {/* Test Hearing Button */}
+              <button
+                onClick={() => handleStartButtonClick('test')}
+                disabled={isLoading}
+                className="bg-blue-600 text-white px-6 py-3 rounded-full font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isLoading ? 'Starting Session...' : 'Test Hearing'}
+              </button>
+              
+              {/* Official Hearing Button */}
+              <button
+                onClick={() => handleStartButtonClick('official')}
+                disabled={isLoading}
+                className="bg-green-600 text-white px-6 py-3 rounded-full font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg"
+              >
+                {isLoading ? 'Starting Session...' : 'Official Hearing'}
+              </button>
+            </div>
           </div>
         )}
         
@@ -474,6 +493,9 @@ export function NewAnamVideoPanel({ caseId, caseTitle }: NewAnamVideoPanelProps)
             <div className="font-medium">Session Details:</div>
             <div>Case: {caseTitle}</div>
             <div>Session ID: {interviewId}</div>
+            <div>Type: <span className={`font-medium ${sessionType === 'official' ? 'text-green-600' : 'text-blue-600'}`}>
+              {sessionType ? (sessionType === 'official' ? 'Official Hearing' : 'Test Hearing') : 'Not started'}
+            </span></div>
             <div>Status: {isJudgeConnected ? 'Both feeds active' : 'Connecting judge...'}</div>
           </div>
         </div>
